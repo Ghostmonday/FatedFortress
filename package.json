@@ -1,0 +1,22 @@
+{
+  "name": "fated-fortress-monorepo",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "test": "turbo test",
+    "dev": "turbo dev",
+    "clean": "rm -rf node_modules **/*/node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "dotenv-cli": "^7.0.0",
+    "tsup": "^8.0.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+    "name": "swarm",
+    "version": "0.0.0",
+    "private": true,
+    "scripts": {
+        "dev": "tsx src/index.ts",
+        "start": "node dist/index.js",
+        "build": "tsup src/index.ts --format esm"
+    },
+    "dependencies": {
+        "@fated/events": "workspace:*",
+        "@fated/types": "workspace:*",
+        "@fated/xp-logic": "workspace:*",
+        "@fated/matchmaker": "workspace:*",
+        "@faker-js/faker": "^8.4.1",
+        "tsx": "^4.7.1"
+    },
+    "devDependencies": {
+        "@fated/tsconfig": "workspace:*",
+        "tsup": "^8.0.0"
+    }
+}

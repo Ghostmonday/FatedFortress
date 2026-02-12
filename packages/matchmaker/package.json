@@ -1,0 +1,14 @@
+{
+    "name": "@fated/matchmaker",
+    "version": "0.0.0",
+    "main": "./src/index.ts",
+    "types": "./src/index.ts",
+    "dependencies": {
+        "@fated/types": "workspace:*",
+        "@fated/xp-logic": "workspace:*"
+    },
+    "devDependencies": {
+        "@fated/tsconfig": "workspace:*",
+        "typescript": "^5.0.0"
+    }
+}

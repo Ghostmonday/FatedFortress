@@ -1,7 +1,25 @@
 {
-  "name": "monorepo",
-  "version": "0.0.0",
+  "name": "fatedfortress",
+  "version": "1.0.0",
   "private": true,
-  "scripts": {},
-  "workspaces": []
+  "description": "FatedFortress - Sovereign Talent Marketplace",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/web",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "start": "npm run start --workspace=apps/web",
+    "start:api": "npm run start --workspace=apps/api",
+    "test": "echo 'Tests not configured yet'",
+    "lint": "npm run lint --workspace=apps/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
 }

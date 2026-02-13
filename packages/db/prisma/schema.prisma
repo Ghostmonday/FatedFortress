@@ -22,6 +22,8 @@ model Event {
 
 model ActorState {
   actorId          String   @id
+  currentRep      Float    @default(0)   // Liquid REP (available to use)
+  stakedRep       Float    @default(0)   // Locked REP (currently staked)
   currentXp        Int      @default(0)
   pendingXp        Int      @default(0)
   contributions    Int      @default(0)
@@ -30,6 +32,10 @@ model ActorState {
   lastUpdated      DateTime @default(now())
   roleHistory      String   @default("[]") // JSON string
   successRate      String   @default("{}")  // JSON: { BACKEND: 0.85, FRONTEND: 0.72 }
+  
+  // Relations for staking
+  stakes          Stake[]
+  ticketsClaimed  Ticket[] @relation("ClaimedTickets")
 }
 
 model Project {
@@ -40,7 +46,7 @@ model Project {
   squadIds    String   // JSON array of UserIds
   createdAt   DateTime @default(now())
   completedAt DateTime?
-  evaluations Evaluation[] @relation("ProjectEvaluations") @onDelete(Cascade)
+  evaluations Evaluation[] @relation("ProjectEvaluations")
 
   @@index([status])
 }
@@ -55,4 +61,44 @@ model Evaluation {
   project     Project  @relation("ProjectEvaluations", fields: [projectId], references: [id])
 
   @@unique([projectId, userId]) // Prevent duplicate evaluations per project per user
+}
+
+// ============================================
+// BONDING CURVE / STAKING MODELS
+// ============================================
+
+model Stake {
+  id          String    @id @default(uuid())
+  actorId     String
+  amount      Float
+  ticketId    String?   @unique  // Link to ticket if this stake is for claiming (must be unique for one-to-one)
+  createdAt   DateTime  @default(now())
+  releasedAt  DateTime? // When stake was returned
+  status      String    @default("ACTIVE") // ACTIVE, RELEASED, FORFEITED
+  
+  // Relations
+  actor       ActorState @relation(fields: [actorId], references: [actorId])
+  ticket      Ticket?    @relation(fields: [ticketId], references: [id])
+
+  @@index([actorId, status])
+}
+
+model Ticket {
+  id            String    @id @default(uuid())
+  workPackageId String    // Reference to project/task ID
+  title         String
+  description   String?
+  bondRequired  Float     // REP required to claim
+  claimedBy     String?
+  claimedAt     DateTime?
+  deadline      DateTime  // When the work is due
+  completedAt   DateTime?
+  status        String    @default("OPEN") // OPEN, CLAIMED, COMPLETED, FORFEITED, CANCELLED
+  
+  // Relations
+  actor         ActorState? @relation("ClaimedTickets", fields: [claimedBy], references: [actorId])
+  stake         Stake?
+
+  @@index([claimedBy, status])
+  @@index([status, deadline])
 }

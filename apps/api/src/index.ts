@@ -36,6 +36,9 @@ fastify.setErrorHandler((error: any, request: FastifyRequest, reply: any) => {
 // Pass hydrate=true to load state from SQLite on startup
 const store = new InMemoryEventStore(true);
 
+// Register GitHub Webhook Routes
+githubRoutes(fastify, { store });
+
 // POST /contribute
 fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
     const result = store.append(request.body);
@@ -101,6 +104,200 @@ fastify.get('/team', async () => {
         })),
         totalPower: party.totalPower
     };
+});
+
+// ============================================
+// BONDING CURVE / STAKING ENDPOINTS
+// ============================================
+
+import {
+    stakeRep,
+    releaseStake,
+    createTicket,
+    claimTicket,
+    completeTicket,
+    processForfeitures,
+    getStakeSummary,
+    listOpenTickets,
+    getTicket
+} from '@fated/bonding';
+
+import { githubRoutes } from './routes/github';
+
+// POST /stake - Lock REP to stake
+fastify.post('/stake', async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
+    const { actorId, amount } = request.body;
+
+    if (!actorId || !amount) {
+        return reply.status(400).send({ error: 'actorId and amount required' });
+    }
+
+    try {
+        const stake = await stakeRep({ actorId, amount });
+        return { success: true, stake };
+    } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+    }
+});
+
+// POST /unstake - Release a stake
+fastify.post('/unstake', async (request: FastifyRequest<{ Body: { actorId: string; stakeId: string } }>, reply) => {
+    const { actorId, stakeId } = request.body;
+
+    if (!actorId || !stakeId) {
+        return reply.status(400).send({ error: 'actorId and stakeId required' });
+    }
+
+    try {
+        const result = await releaseStake({ actorId, stakeId });
+        return { success: true, ...result };
+    } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+    }
+});
+
+// POST /ticket - Create a new ticket
+fastify.post('/ticket', async (request: FastifyRequest<{
+    Body: {
+        workPackageId: string;
+        title: string;
+        description?: string;
+        bondRequired: number;
+        deadline: string;
+    }
+}>, reply) => {
+    const { workPackageId, title, description, bondRequired, deadline } = request.body;
+
+    if (!workPackageId || !title || !bondRequired || !deadline) {
+        return reply.status(400).send({ error: 'workPackageId, title, bondRequired, and deadline required' });
+    }
+
+    try {
+        const ticket = await createTicket({
+            workPackageId,
+            title,
+            description,
+            bondRequired,
+            deadline: new Date(deadline),
+        });
+        return { success: true, ticket };
+    } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+    }
+});
+
+// POST /claim - Claim a ticket
+fastify.post('/claim', async (request: FastifyRequest<{ Body: { actorId: string; ticketId: string } }>, reply) => {
+    const { actorId, ticketId } = request.body;
+
+    if (!actorId || !ticketId) {
+        return reply.status(400).send({ error: 'actorId and ticketId required' });
+    }
+
+    try {
+        const result = await claimTicket({ actorId, ticketId });
+        return { success: true, ...result };
+    } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+    }
+});
+
+// POST /complete - Complete a claimed ticket
+fastify.post('/complete', async (request: FastifyRequest<{ Body: { ticketId: string; verifierId: string } }>, reply) => {
+    const { ticketId, verifierId } = request.body;
+
+    if (!ticketId || !verifierId) {
+        return reply.status(400).send({ error: 'ticketId and verifierId required' });
+    }
+
+    try {
+        const result = await completeTicket({ ticketId, verifierId });
+        return { success: true, ...result };
+    } catch (err) {
+        return reply.status(400).send({ error: (err as Error).message });
+    }
+});
+
+// POST /forfeit - Process overdue tickets (cron endpoint)
+fastify.post('/forfeit', async (request: FastifyRequest<{ Body: { slashPercent?: number } }>, reply) => {
+    const slashPercent = request.body?.slashPercent ?? 0.5;
+
+    try {
+        const results = await processForfeitures(slashPercent);
+        return { success: true, processed: results.length, results };
+    } catch (err) {
+        return reply.status(500).send({ error: (err as Error).message });
+    }
+});
+
+// GET /tickets - List open tickets
+fastify.get('/tickets', async (request: FastifyRequest<{ Querystring: { limit?: string } }>) => {
+    const limit = Number(request.query.limit) || 20;
+    const tickets = await listOpenTickets(limit);
+    return { tickets };
+});
+
+// GET /ticket/:id - Get ticket details
+fastify.get('/ticket/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+    const ticket = await getTicket(request.params.id);
+    if (!ticket) {
+        return { error: 'Ticket not found' };
+    }
+    return { ticket };
+});
+
+// GET /stake/:actorId - Get stake summary for actor
+fastify.get('/stake/:actorId', async (request: FastifyRequest<{ Params: { actorId: string } }>) => {
+    const summary = await getStakeSummary(request.params.actorId);
+    return summary;
+});
+
+// POST /mint-rep - Mint REP for testing (REMOVE IN PRODUCTION)
+fastify.post('/mint-rep', async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
+    const { actorId, amount } = request.body;
+
+    if (!actorId || !amount) {
+        return reply.status(400).send({ error: 'actorId and amount required' });
+    }
+
+    const { PrismaClient } = await import('@prisma/client');
+    const prisma = new PrismaClient();
+
+    try {
+        const actor = await prisma.actorState.upsert({
+            where: { actorId },
+            update: { currentRep: { increment: amount } },
+            create: { actorId, currentRep: amount, stakedRep: 0 },
+        });
+        return { success: true, actor };
+    } finally {
+        await prisma.$disconnect();
+    }
+});
+
+// ============================================
+// THE REAPER - Automatic Forfeiture Cron
+// ============================================
+
+const REAPER_INTERVAL_MS = 60 * 1000; // Run every 60 seconds
+
+console.log(`[Reaper] ⏰ Starting automatic forfeiture checks (every ${REAPER_INTERVAL_MS/1000}s)`);
+
+setInterval(async () => {
+    try {
+        const results = await processForfeitures(0.5); // 50% slash
+        if (results.length > 0) {
+            console.log(`[Reaper] 💀 Executed ${results.length} forfeitures:`, results);
+        }
+    } catch (err) {
+        console.error('[Reaper] ❌ Error during forfeiture:', err);
+    }
+}, REAPER_INTERVAL_MS);
+
+// Manual trigger for testing
+fastify.post('/admin/reaper', async () => {
+    const results = await processForfeitures(0.5);
+    return { success: true, processed: results.length, results };
 });
 
 // Start server

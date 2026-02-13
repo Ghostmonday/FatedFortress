@@ -1,4 +1,4 @@
-import Fastify, { FastifyRequest, FastifyInstance } from 'fastify';
+import Fastify, { FastifyRequest, FastifyInstance, FastifyReply } from 'fastify';
 import { randomUUID } from 'crypto';
 import { formParty } from '@fated/matchmaker';
 import { AppEvent } from '@fated/events';
@@ -39,8 +39,23 @@ const store = new InMemoryEventStore(true);
 // Register GitHub Webhook Routes
 githubRoutes(fastify, { store });
 
+// Authentication Guard
+const API_SECRET = process.env.API_SECRET || 'dev-secret-key';
+
+const authGuard = async (request: FastifyRequest, reply: FastifyReply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader) {
+        return reply.status(401).send({ error: 'Missing authorization header' });
+    }
+
+    const [scheme, token] = authHeader.split(' ');
+    if (scheme !== 'Bearer' || token !== API_SECRET) {
+        return reply.status(403).send({ error: 'Invalid token' });
+    }
+};
+
 // POST /contribute
-fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
+fastify.post('/contribute', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
     const result = store.append(request.body);
 
     if (!result.ok) {
@@ -56,7 +71,7 @@ fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, 
 });
 
 // POST /verify
-fastify.post('/verify', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
+fastify.post('/verify', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
     const result = store.append(request.body);
 
     if (!result.ok) {
@@ -125,7 +140,7 @@ import {
 import { githubRoutes } from './routes/github';
 
 // POST /stake - Lock REP to stake
-fastify.post('/stake', async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
+fastify.post('/stake', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
     const { actorId, amount } = request.body;
 
     if (!actorId || !amount) {
@@ -141,7 +156,7 @@ fastify.post('/stake', async (request: FastifyRequest<{ Body: { actorId: string;
 });
 
 // POST /unstake - Release a stake
-fastify.post('/unstake', async (request: FastifyRequest<{ Body: { actorId: string; stakeId: string } }>, reply) => {
+fastify.post('/unstake', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: { actorId: string; stakeId: string } }>, reply) => {
     const { actorId, stakeId } = request.body;
 
     if (!actorId || !stakeId) {
@@ -157,7 +172,7 @@ fastify.post('/unstake', async (request: FastifyRequest<{ Body: { actorId: strin
 });
 
 // POST /ticket - Create a new ticket
-fastify.post('/ticket', async (request: FastifyRequest<{
+fastify.post('/ticket', { preHandler: authGuard }, async (request: FastifyRequest<{
     Body: {
         workPackageId: string;
         title: string;
@@ -187,7 +202,7 @@ fastify.post('/ticket', async (request: FastifyRequest<{
 });
 
 // POST /claim - Claim a ticket
-fastify.post('/claim', async (request: FastifyRequest<{ Body: { actorId: string; ticketId: string } }>, reply) => {
+fastify.post('/claim', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: { actorId: string; ticketId: string } }>, reply) => {
     const { actorId, ticketId } = request.body;
 
     if (!actorId || !ticketId) {
@@ -203,7 +218,7 @@ fastify.post('/claim', async (request: FastifyRequest<{ Body: { actorId: string;
 });
 
 // POST /complete - Complete a claimed ticket
-fastify.post('/complete', async (request: FastifyRequest<{ Body: { ticketId: string; verifierId: string } }>, reply) => {
+fastify.post('/complete', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: { ticketId: string; verifierId: string } }>, reply) => {
     const { ticketId, verifierId } = request.body;
 
     if (!ticketId || !verifierId) {
@@ -219,7 +234,7 @@ fastify.post('/complete', async (request: FastifyRequest<{ Body: { ticketId: str
 });
 
 // POST /forfeit - Process overdue tickets (cron endpoint)
-fastify.post('/forfeit', async (request: FastifyRequest<{ Body: { slashPercent?: number } }>, reply) => {
+fastify.post('/forfeit', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: { slashPercent?: number } }>, reply) => {
     const slashPercent = request.body?.slashPercent ?? 0.5;
 
     try {
@@ -253,7 +268,7 @@ fastify.get('/stake/:actorId', async (request: FastifyRequest<{ Params: { actorI
 });
 
 // POST /mint-rep - Mint REP for testing (REMOVE IN PRODUCTION)
-fastify.post('/mint-rep', async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
+fastify.post('/mint-rep', { preHandler: authGuard }, async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
     const { actorId, amount } = request.body;
 
     if (!actorId || !amount) {
@@ -295,7 +310,7 @@ setInterval(async () => {
 }, REAPER_INTERVAL_MS);
 
 // Manual trigger for testing
-fastify.post('/admin/reaper', async () => {
+fastify.post('/admin/reaper', { preHandler: authGuard }, async () => {
     const results = await processForfeitures(0.5);
     return { success: true, processed: results.length, results };
 });

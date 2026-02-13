@@ -41,7 +41,7 @@ githubRoutes(fastify, { store });
 
 // POST /contribute
 fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
-    const result = store.append(request.body);
+    const result = await store.append(request.body);
 
     if (!result.ok) {
         const error = result as { ok: false; error: unknown };
@@ -57,7 +57,7 @@ fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, 
 
 // POST /verify
 fastify.post('/verify', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
-    const result = store.append(request.body);
+    const result = await store.append(request.body);
 
     if (!result.ok) {
         const error = result as { ok: false; error: unknown };
@@ -73,8 +73,14 @@ fastify.post('/verify', async (request: FastifyRequest<{ Body: AppEvent }>, repl
 
 // GET /leaderboard
 fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offset?: string; limit?: string } }>) => {
-    const offset = Number(request.query.offset) || 0;
-    const limit = Number(request.query.limit) || 50;
+    const MAX_LIMIT = 100;
+    let offset = Number(request.query.offset) || 0;
+    let limit = Number(request.query.limit) || 50;
+
+    // Enforce limits for security
+    if (offset < 0) offset = 0;
+    if (limit < 1) limit = 1;
+    if (limit > MAX_LIMIT) limit = MAX_LIMIT;
 
     const leaderboard = store.getLeaderboard({ offset, limit });
     const total = store.getUserCount();
@@ -82,8 +88,8 @@ fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offs
     return {
         leaderboard: leaderboard.map(entry => ({
             userId: entry.userId,
-            totalXP: entry.total,
-            pendingXP: entry.pending,
+            totalXP: entry.totalXP,
+            pendingXP: entry.pendingXP,
             contributions: entry.contributions,
             lastActivity: entry.lastActivity
         })),

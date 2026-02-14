@@ -3,7 +3,14 @@ import { z } from 'zod';
 import { AppEvent, BaseEventSchema } from '@fated/events';
 import { UserId } from '@fated/types';
 
-const prisma = new PrismaClient();
+// Lazy initialization - only create PrismaClient when needed
+let _prisma: PrismaClient | undefined;
+function getPrisma() {
+  if (!_prisma) {
+    _prisma = new PrismaClient();
+  }
+  return _prisma;
+}
 
 // ============================================
 // SCHEMAS
@@ -47,7 +54,7 @@ export const CompleteTicketSchema = z.object({
 export async function stakeRep(input: z.infer<typeof StakeSchema>) {
   const { actorId, amount } = StakeSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const actor = await tx.actorState.findUnique({
       where: { actorId },
     });
@@ -103,7 +110,7 @@ export async function stakeRep(input: z.infer<typeof StakeSchema>) {
 export async function releaseStake(input: z.infer<typeof UnstakeSchema>) {
   const { actorId, stakeId } = UnstakeSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const stake = await tx.stake.findFirst({
       where: { id: stakeId, actorId, status: 'ACTIVE' },
     });
@@ -157,7 +164,7 @@ export async function releaseStake(input: z.infer<typeof UnstakeSchema>) {
 export async function createTicket(input: z.infer<typeof CreateTicketSchema>) {
   const data = CreateTicketSchema.parse(input);
 
-  const ticket = await prisma.ticket.create({
+  const ticket = await getPrisma().ticket.create({
     data: {
       workPackageId: data.workPackageId,
       title: data.title,
@@ -177,7 +184,7 @@ export async function createTicket(input: z.infer<typeof CreateTicketSchema>) {
 export async function claimTicket(input: z.infer<typeof ClaimTicketSchema>) {
   const { actorId, ticketId } = ClaimTicketSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const ticket = await tx.ticket.findUnique({
       where: { id: ticketId },
     });
@@ -236,7 +243,7 @@ export async function claimTicket(input: z.infer<typeof ClaimTicketSchema>) {
 export async function completeTicket(input: z.infer<typeof CompleteTicketSchema>) {
   const { ticketId, verifierId } = CompleteTicketSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const ticket = await tx.ticket.findUnique({
       where: { id: ticketId },
       include: { stake: true },
@@ -252,6 +259,57 @@ export async function completeTicket(input: z.infer<typeof CompleteTicketSchema>
 
     if (!ticket.claimedBy || !ticket.stake) {
       throw new Error('Ticket has no claimant or stake');
+    }
+
+    // LAZY ENFORCEMENT: Check deadline and trigger forfeiture if overdue
+    // This ensures economic rules are enforced at interaction time, not just by background job
+    if (ticket.deadline && new Date(ticket.deadline) < new Date()) {
+      // Ticket is overdue - execute forfeiture inline
+      const slashPercent = 0.5; // Same as Reaper default
+      const slashAmount = ticket.stake.amount * slashPercent;
+      const returnAmount = ticket.stake.amount - slashAmount;
+
+      // Update ticket status to FORFEITED
+      await tx.ticket.update({
+        where: { id: ticket.id },
+        data: { status: 'FORFEITED' },
+      });
+
+      // Update stake to FORFEITED
+      await tx.stake.update({
+        where: { id: ticket.stake.id },
+        data: { status: 'FORFEITED' },
+      });
+
+      // Slash the REP
+      if (returnAmount > 0) {
+        await tx.actorState.update({
+          where: { actorId: ticket.claimedBy },
+          data: {
+            stakedRep: { decrement: ticket.stake.amount },
+            currentRep: { increment: returnAmount },
+          },
+        });
+      } else {
+        await tx.actorState.update({
+          where: { actorId: ticket.claimedBy },
+          data: {
+            stakedRep: { decrement: ticket.stake.amount },
+          },
+        });
+      }
+
+      // Emit forfeiture event
+      await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+        ticketId: ticket.id,
+        title: ticket.title,
+        originalStake: ticket.stake.amount,
+        slashed: slashAmount,
+        returned: returnAmount,
+        reason: 'lazy_forfeiture',
+      });
+
+      throw new Error('Ticket deadline missed - stake has been forfeited');
     }
 
     // Return staked REP to liquid
@@ -296,75 +354,131 @@ export async function completeTicket(input: z.infer<typeof CompleteTicketSchema>
 
 /**
  * Process overdue tickets - slash staked REP
+ * Implements batching, time budget, and fair ordering
  * @param slashPercent - percentage of stake to burn (0-1)
+ * @param batchSize - max tickets per batch (default 50)
+ * @param timeBudgetMs - max time per cycle in ms (default 5000)
  */
-export async function processForfeitures(slashPercent: number = 0.5) {
-  const overdueTickets = await prisma.ticket.findMany({
-    where: {
-      status: 'CLAIMED',
-      deadline: { lt: new Date() },
-    },
-    include: { stake: true, actor: true },
-  });
-
+export async function processForfeitures(
+  slashPercent: number = 0.5,
+  batchSize: number = 50,
+  timeBudgetMs: number = 5000
+) {
   const results = [];
+  const errors = [];
+  const startTime = Date.now();
 
-  for (const ticket of overdueTickets) {
-    if (!ticket.stake || !ticket.claimedBy) continue;
+  // Process in batches with time budget
+  let hasMore = true;
 
-    const slashAmount = ticket.stake.amount * slashPercent;
-    const returnAmount = ticket.stake.amount - slashAmount;
+  while (hasMore) {
+    // Check time budget - stop if we're taking too long
+    if (Date.now() - startTime > timeBudgetMs) {
+      console.log(`[Forfeiture] Time budget exhausted yielding, for next cycle`);
+      break;
+    }
 
-    await prisma.$transaction(async (tx) => {
-      // Update ticket status
-      await tx.ticket.update({
-        where: { id: ticket.id },
-        data: { status: 'FORFEITED' },
-      });
-
-      // Update stake to forfeited
-      await tx.stake.update({
-        where: { id: ticket.stake!.id },
-        data: { status: 'FORFEITED' },
-      });
-
-      // Handle REP: slash some, return remainder
-      if (returnAmount > 0) {
-        await tx.actorState.update({
-          where: { actorId: ticket.claimedBy },
-          data: {
-            stakedRep: { decrement: ticket.stake!.amount },
-            currentRep: { increment: returnAmount },
-          },
-        });
-      } else {
-        // All staked REP is burned
-        await tx.actorState.update({
-          where: { actorId: ticket.claimedBy },
-          data: {
-            stakedRep: { decrement: ticket.stake!.amount },
-          },
-        });
-      }
-
-      // Emit forfeiture event
-      await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
-        ticketId: ticket.id,
-        title: ticket.title,
-        originalStake: ticket.stake.amount,
-        slashed: slashAmount,
-        returned: returnAmount,
-      });
-
-      results.push({
-        ticketId: ticket.id,
-        slashed: slashAmount,
-        returned: returnAmount,
-      });
+    // Fetch batch of overdue tickets, ordered by deadline (oldest first - fairness)
+    const overdueTickets = await getPrisma().ticket.findMany({
+      where: {
+        status: 'CLAIMED',
+        deadline: { lt: new Date() },
+      },
+      take: batchSize,
+      orderBy: { deadline: 'asc' },
+      include: { stake: true, actor: true },
     });
+
+    // No more tickets to process
+    if (overdueTickets.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    // Process each ticket with isolated error handling
+    for (const ticket of overdueTickets) {
+      try {
+        if (!ticket.stake || !ticket.claimedBy) continue;
+
+        const slashAmount = ticket.stake.amount * slashPercent;
+        const returnAmount = ticket.stake.amount - slashAmount;
+
+        await getPrisma().$transaction(async (tx) => {
+          // Double-check status hasn't changed (idempotency)
+          const currentTicket = await tx.ticket.findUnique({
+            where: { id: ticket.id },
+          });
+
+          if (currentTicket?.status !== 'CLAIMED') {
+            // Already processed, skip
+            return;
+          }
+
+          // Update ticket status
+          await tx.ticket.update({
+            where: { id: ticket.id },
+            data: { status: 'FORFEITED' },
+          });
+
+          // Update stake to forfeited
+          await tx.stake.update({
+            where: { id: ticket.stake!.id },
+            data: { status: 'FORFEITED' },
+          });
+
+          // Handle REP: slash some, return remainder
+          if (returnAmount > 0) {
+            await tx.actorState.update({
+              where: { actorId: ticket.claimedBy },
+              data: {
+                stakedRep: { decrement: ticket.stake!.amount },
+                currentRep: { increment: returnAmount },
+              },
+            });
+          } else {
+            // All staked REP is burned
+            await tx.actorState.update({
+              where: { actorId: ticket.claimedBy },
+              data: {
+                stakedRep: { decrement: ticket.stake!.amount },
+              },
+            });
+          }
+
+          // Emit forfeiture event
+          await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+            ticketId: ticket.id,
+            title: ticket.title,
+            originalStake: ticket.stake.amount,
+            slashed: slashAmount,
+            returned: returnAmount,
+          });
+
+          results.push({
+            ticketId: ticket.id,
+            slashed: slashAmount,
+            returned: returnAmount,
+          });
+        });
+      } catch (err) {
+        // Log error but continue with next ticket - don't kill the batch
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Forfeiture] Failed to forfeit ticket ${ticket.id}:`, errorMsg);
+        errors.push({ ticketId: ticket.id, error: errorMsg });
+      }
+    }
+
+    // If we got a full batch, there might be more - continue
+    // Otherwise we're done
+    hasMore = overdueTickets.length === batchSize;
   }
 
-  return results;
+  // Log summary
+  if (results.length > 0 || errors.length > 0) {
+    console.log(`[Forfeiture] Cycle complete: ${results.length} processed, ${errors.length} failed`);
+  }
+
+  return { results, errors, totalProcessed: results.length, totalFailed: errors.length };
 }
 
 // ============================================
@@ -394,15 +508,15 @@ async function emitEvent(
  * Get user's staking summary
  */
 export async function getStakeSummary(actorId: string) {
-  const actor = await prisma.actorState.findUnique({
+  const actor = await getPrisma().actorState.findUnique({
     where: { actorId },
   });
 
-  const stakes = await prisma.stake.findMany({
+  const stakes = await getPrisma().stake.findMany({
     where: { actorId, status: 'ACTIVE' },
   });
 
-  const tickets = await prisma.ticket.findMany({
+  const tickets = await getPrisma().ticket.findMany({
     where: { claimedBy: actorId, status: 'CLAIMED' },
   });
 
@@ -418,7 +532,7 @@ export async function getStakeSummary(actorId: string) {
  * List available tickets
  */
 export async function listOpenTickets(limit: number = 20) {
-  return prisma.ticket.findMany({
+  return getPrisma().ticket.findMany({
     where: { status: 'OPEN' },
     orderBy: { deadline: 'asc' },
     take: limit,
@@ -429,7 +543,7 @@ export async function listOpenTickets(limit: number = 20) {
  * Get ticket details
  */
 export async function getTicket(ticketId: string) {
-  return prisma.ticket.findUnique({
+  return getPrisma().ticket.findUnique({
     where: { id: ticketId },
     include: { stake: true },
   });

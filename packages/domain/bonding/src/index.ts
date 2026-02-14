@@ -15,7 +15,14 @@ import {
   type ActorState,
 } from '@fated/core';
 
-const prisma = new PrismaClient();
+// Lazy initialization - only create PrismaClient when needed
+let _prisma: PrismaClient | undefined;
+function getPrisma() {
+  if (!_prisma) {
+    _prisma = new PrismaClient();
+  }
+  return _prisma;
+}
 
 // ============================================
 // PRIVATE HELPERS
@@ -49,7 +56,7 @@ async function emitEvent(
 export async function stakeRep(input: z.infer<typeof StakeInputSchema>) {
   const { actorId, amount } = StakeInputSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     // Ensure actor exists
     let actor = await tx.actorState.findUnique({ where: { actorId } });
     if (!actor) {
@@ -94,7 +101,7 @@ export async function stakeRep(input: z.infer<typeof StakeInputSchema>) {
 export async function releaseStake(input: z.infer<typeof UnstakeInputSchema>) {
   const { actorId, stakeId } = UnstakeInputSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const stake = await tx.stake.findFirst({
       where: { id: stakeId, actorId, status: 'ACTIVE' },
     });
@@ -146,7 +153,7 @@ export async function releaseStake(input: z.infer<typeof UnstakeInputSchema>) {
 export async function createTicket(input: z.infer<typeof CreateTicketInputSchema>) {
   const data = CreateTicketInputSchema.parse(input);
 
-  return prisma.ticket.create({
+  return getPrisma().ticket.create({
     data: {
       workPackageId: data.workPackageId,
       title: data.title,
@@ -164,7 +171,7 @@ export async function createTicket(input: z.infer<typeof CreateTicketInputSchema
 export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>) {
   const { actorId, ticketId } = ClaimTicketInputSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const ticket = await tx.ticket.findUnique({ where: { id: ticketId } });
 
     if (!ticket) throw new Error('Ticket not found');
@@ -205,7 +212,7 @@ export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>)
 export async function completeTicket(input: z.infer<typeof CompleteTicketInputSchema>) {
   const { ticketId, verifierId } = CompleteTicketInputSchema.parse(input);
 
-  return prisma.$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx) => {
     const ticket = await tx.ticket.findUnique({
       where: { id: ticketId },
       include: { stake: true },
@@ -256,7 +263,7 @@ export async function completeTicket(input: z.infer<typeof CompleteTicketInputSc
  * Process overdue tickets - slash staked REP
  */
 export async function processForfeitures(slashPercent: number = 0.5) {
-  const overdueTickets = await prisma.ticket.findMany({
+  const overdueTickets = await getPrisma().ticket.findMany({
     where: { status: 'CLAIMED', deadline: { lt: new Date() } },
     include: { stake: true },
   });
@@ -269,7 +276,7 @@ export async function processForfeitures(slashPercent: number = 0.5) {
     const slashAmount = ticket.stake.amount * slashPercent;
     const returnAmount = ticket.stake.amount - slashAmount;
 
-    await prisma.$transaction(async (tx) => {
+    await getPrisma().$transaction(async (tx) => {
       // Update ticket status
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'FORFEITED' } });
 
@@ -310,9 +317,9 @@ export async function processForfeitures(slashPercent: number = 0.5) {
 // ============================================
 
 export async function getStakeSummary(actorId: string) {
-  const actor = await prisma.actorState.findUnique({ where: { actorId } });
-  const stakes = await prisma.stake.findMany({ where: { actorId, status: 'ACTIVE' } });
-  const tickets = await prisma.ticket.findMany({ where: { claimedBy: actorId, status: 'CLAIMED' } });
+  const actor = await getPrisma().actorState.findUnique({ where: { actorId } });
+  const stakes = await getPrisma().stake.findMany({ where: { actorId, status: 'ACTIVE' } });
+  const tickets = await getPrisma().ticket.findMany({ where: { claimedBy: actorId, status: 'CLAIMED' } });
 
   return {
     currentRep: actor?.currentRep ?? 0,
@@ -323,7 +330,7 @@ export async function getStakeSummary(actorId: string) {
 }
 
 export async function listOpenTickets(limit: number = 20) {
-  return prisma.ticket.findMany({
+  return getPrisma().ticket.findMany({
     where: { status: 'OPEN' },
     orderBy: { deadline: 'asc' },
     take: limit,
@@ -331,18 +338,18 @@ export async function listOpenTickets(limit: number = 20) {
 }
 
 export async function getTicket(ticketId: string) {
-  return prisma.ticket.findUnique({
+  return getPrisma().ticket.findUnique({
     where: { id: ticketId },
     include: { stake: true },
   });
 }
 
 export async function getActorState(actorId: string) {
-  return prisma.actorState.findUnique({ where: { actorId } });
+  return getPrisma().actorState.findUnique({ where: { actorId } });
 }
 
 export async function listStakes(actorId: string, status?: string) {
-  return prisma.stake.findMany({
+  return getPrisma().stake.findMany({
     where: { actorId, ...(status ? { status } : {}) },
     orderBy: { createdAt: 'desc' },
   });

@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "packages/@fated/*"
   - "packages/core"
   - "packages/db"
   - "packages/domain/*"

@@ -3,6 +3,44 @@
  * Main API Server - Modular Architecture
  */
 
+// Load .env from project root
+import { readFileSync, existsSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// Go up 3 levels: src -> api -> packages -> root
+const rootDir = resolve(__dirname, '../../..');
+const envPath = resolve(rootDir, '.env');
+
+if (existsSync(envPath)) {
+  const envContent = readFileSync(envPath, 'utf-8');
+  envContent.split('\n').forEach(line => {
+    const match = line.match(/^([^=]+)=(.*)$/);
+    if (match) {
+      let value = match[2].trim();
+      // Remove surrounding quotes if present
+      if ((value.startsWith('"') && value.endsWith('"')) || 
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      // Convert relative paths to absolute paths
+      if (value.startsWith('file:./')) {
+        const relativePath = value.slice(7); // Remove 'file:./' (7 chars)
+        const absolutePath = resolve(rootDir, relativePath);
+        console.log('[ENV] rootDir:', rootDir);
+        console.log('[ENV] relativePath:', relativePath);
+        console.log('[ENV] absolutePath:', absolutePath);
+        value = 'file:' + absolutePath;
+      }
+      process.env[match[1].trim()] = value;
+    }
+  });
+  console.log('[ENV] Loaded DATABASE_URL:', process.env.DATABASE_URL);
+} else {
+  console.log('[ENV] No .env file found at', envPath);
+}
+
 import Fastify, { FastifyRequest, FastifyInstance } from 'fastify';
 import { randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
@@ -281,6 +319,64 @@ fastify.post('/mint-rep', async (request: FastifyRequest<{ Body: { actorId: stri
 // ADMIN & REAPER (Forfeiture Processing)
 // ============================================
 
+// Redis client for distributed locking and heartbeat
+// Falls back gracefully if Redis is not available
+let redisClient: any = null;
+let redisAvailable = false;
+
+// Try to initialize Redis
+async function initRedis() {
+  try {
+    // Dynamic import to avoid hard dependency
+    const Redis = (await import('ioredis')).default;
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    redisClient = new Redis(redisUrl);
+    
+    // Test connection
+    await redisClient.ping();
+    redisAvailable = true;
+    console.log('[Reaper] Redis connected for distributed locking');
+  } catch (err) {
+    console.warn('[Reaper] Redis not available, running without distributed lock (single-instance only)');
+    redisAvailable = false;
+  }
+}
+
+/**
+ * Try to acquire distributed lock for Reaper
+ * Returns true if lock acquired, false otherwise
+ */
+async function acquireReaperLock(): Promise<boolean> {
+  if (!redisAvailable || !redisClient) {
+    // No Redis - assume single instance (warning in logs)
+    return true;
+  }
+  
+  try {
+    // NX = only set if not exists, EX = expire
+    const result = await redisClient.set('lock:reaper', process.env.HOSTNAME || 'unknown', 'NX', 'EX', 65);
+    return result === 'OK';
+  } catch (err) {
+    console.error('[Reaper] Redis lock error:', err);
+    return true; // On error, allow execution
+  }
+}
+
+/**
+ * Update heartbeat timestamp to prove Reaper is alive
+ */
+async function updateHeartbeat(): Promise<void> {
+  if (!redisAvailable || !redisClient) {
+    return;
+  }
+  
+  try {
+    await redisClient.set('reaper:heartbeat', Date.now().toString());
+  } catch (err) {
+    // Silent fail for heartbeat
+  }
+}
+
 // Configuration with environment variables and sensible defaults
 const REAPER_CONFIG = {
   // Default: 5 minutes (300s) - much more reasonable than 60s
@@ -306,16 +402,37 @@ function getNextRunTime(baseIntervalMs: number, jitterPercent: number): number {
 
 /**
  * Execute the reaper - process overdue tickets and slash staked REP
+ * Includes distributed lock to prevent multi-instance race conditions
  */
 async function runReaper(): Promise<{ processed: number; results: Array<{ ticketId: string; slashed: number; returned: number }> }> {
+  // Try to acquire distributed lock
+  const lockAcquired = await acquireReaperLock();
+  
+  if (!lockAcquired) {
+    // Another instance has the lock - skip this cycle
+    return { processed: 0, results: [] };
+  }
+  
+  const runId = randomUUID();
+  
   try {
-    const results = await processForfeitures(REAPER_CONFIG.slashPercent);
+    console.log(`[Reaper] Starting cycle ${runId.slice(0, 8)}`);
+    
+    const result = await processForfeitures(REAPER_CONFIG.slashPercent);
+    const results = result.results || [];
+    
     if (results.length > 0) {
       console.log(`[Reaper] 💀 Executed ${results.length} forfeitures`);
       for (const r of results) {
         console.log(`[Reaper]   - Ticket ${r.ticketId.slice(0, 8)}: slashed ${r.slashed.toFixed(2)} REP, returned ${r.returned.toFixed(2)} REP`);
       }
     }
+    
+    // Update heartbeat to prove we're alive
+    await updateHeartbeat();
+    
+    console.log(`[Reaper] Cycle ${runId.slice(0, 8)} complete: ${results.length} processed, ${result.totalFailed || 0} failed`);
+    
     return { processed: results.length, results };
   } catch (err) {
     console.error('[Reaper] ❌ Error:', err);
@@ -472,6 +589,9 @@ fastify.delete('/admin/sim/reset', async () => {
 
 const start = async () => {
   try {
+    // Initialize Redis for distributed locking
+    await initRedis();
+    
     await fastify.listen({ port: 3000, host: '0.0.0.0' });
     console.log('🚀 FatedFortress API running at http://localhost:3000');
   } catch (err) {

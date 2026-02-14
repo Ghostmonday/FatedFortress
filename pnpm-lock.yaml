@@ -27,42 +27,21 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@20.19.33)
 
-  apps/api:
+  apps/server:
     dependencies:
-      '@fated/bonding':
+      '@fated/api':
         specifier: workspace:*
-        version: link:../../packages/bonding
-      '@fated/event-store':
-        specifier: workspace:*
-        version: link:../../packages/event-store
-      '@fated/events':
-        specifier: workspace:*
-        version: link:../../packages/events
-      '@fated/matchmaker':
-        specifier: workspace:*
-        version: link:../../packages/matchmaker
-      '@fated/types':
-        specifier: workspace:*
-        version: link:../../packages/types
-      '@fated/xp-logic':
-        specifier: workspace:*
-        version: link:../../packages/xp-logic
-      '@octokit/webhooks-methods':
-        specifier: ^6.0.0
-        version: 6.0.0
-      '@prisma/client':
-        specifier: ^5.22.0
-        version: 5.22.0(prisma@5.22.0)
-      fastify:
-        specifier: ^4.25.0
-        version: 4.29.1
+        version: link:../../packages/api
     devDependencies:
-      '@fated/tsconfig':
-        specifier: workspace:*
-        version: link:../../packages/tsconfig
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.33
       tsx:
-        specifier: ^4.7.1
+        specifier: ^4.7.0
         version: 4.21.0
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
 
   apps/swarm:
     dependencies:
@@ -92,6 +71,46 @@ importers:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
 
+  packages/api:
+    dependencies:
+      '@fated/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fated/db':
+        specifier: workspace:*
+        version: link:../db
+      '@fated/domain-bonding':
+        specifier: workspace:*
+        version: link:../domain/bonding
+      '@fated/domain-matching':
+        specifier: workspace:*
+        version: link:../domain/matching
+      '@fated/domain-xp':
+        specifier: workspace:*
+        version: link:../domain/xp
+      '@fated/infra-event-store':
+        specifier: workspace:*
+        version: link:../infrastructure/event-store
+      '@fated/infra-webhooks':
+        specifier: workspace:*
+        version: link:../infrastructure/webhooks
+      fastify:
+        specifier: ^4.25.0
+        version: 4.29.1
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.33
+      tsx:
+        specifier: ^4.7.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.0.0
+        version: 5.9.3
+
   packages/bonding:
     dependencies:
       '@fated/events':
@@ -120,6 +139,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@20.19.33)
 
+  packages/core:
+    dependencies:
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.33)
+
   packages/db:
     dependencies:
       '@prisma/client':
@@ -132,6 +161,51 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+
+  packages/domain/bonding:
+    dependencies:
+      '@fated/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@fated/db':
+        specifier: workspace:*
+        version: link:../../db
+      '@prisma/client':
+        specifier: ^5.22.0
+        version: 5.22.0(prisma@5.22.0)
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.33)
+
+  packages/domain/matching:
+    dependencies:
+      '@fated/core':
+        specifier: workspace:*
+        version: link:../../core
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.33)
+
+  packages/domain/xp:
+    dependencies:
+      '@fated/core':
+        specifier: workspace:*
+        version: link:../../core
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.33)
 
   packages/event-store:
     dependencies:
@@ -170,6 +244,32 @@ importers:
       '@fated/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+
+  packages/infrastructure/event-store:
+    dependencies:
+      '@fated/core':
+        specifier: workspace:*
+        version: link:../../core
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.33)
+
+  packages/infrastructure/webhooks:
+    dependencies:
+      '@fated/core':
+        specifier: workspace:*
+        version: link:../../core
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.6.1(@types/node@20.19.33)
 
   packages/matchmaker:
     dependencies:
@@ -545,10 +645,6 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
-
-  '@octokit/webhooks-methods@6.0.0':
-    resolution: {integrity: sha512-MFlzzoDJVw/GcbfzVC1RLR36QqkTLUf79vLVO3D+xn7r0QgxnFoLZgtrzxiQErAjFUOdH6fas2KeQJ1yr/qaXQ==}
-    engines: {node: '>= 20'}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -1682,8 +1778,6 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
-
-  '@octokit/webhooks-methods@6.0.0': {}
 
   '@pinojs/redact@0.4.0': {}
 

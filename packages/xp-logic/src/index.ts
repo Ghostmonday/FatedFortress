@@ -57,7 +57,7 @@ export const calculateState = (events: AppEvent[], now: Date = new Date()): Syst
       const uid = initUser(event.payload.userId);
       const xpValue = 10 + (event.payload.complexityScore ?? 0);
       const role = 'BUILDER';
-      const specialty = (event.payload as { specialty?: Specialty }).specialty || 'RESEARCH';
+      const specialty = event.payload.specialty || 'RESEARCH';
 
       contributions[event.id] = { userId: uid, xpValue, approved: false };
       state[uid].pendingXP += xpValue;
@@ -91,16 +91,13 @@ export const calculateState = (events: AppEvent[], now: Date = new Date()): Syst
 
     // Track project domains from PROJECT_CREATED events
     if (event.type === 'PROJECT_CREATED') {
-      const payload = event.payload as { projectId: string; domain: string };
+      const payload = event.payload;
       projectDomains[payload.projectId] = payload.domain;
     }
 
     // Update success rates from PROJECT_COMPLETED events
     if (event.type === 'PROJECT_COMPLETED') {
-      const payload = event.payload as {
-        projectId: string;
-        evaluations: Array<{ userId: string; score: number }>
-      };
+      const payload = event.payload;
       const domain = projectDomains[payload.projectId];
 
       for (const evaluation of payload.evaluations) {

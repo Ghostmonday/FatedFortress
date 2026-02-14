@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
 const API_URL = process.env.API_URL || 'http://localhost:3000';
+const API_KEY = process.env.API_SECRET || 'dev-api-secret';
 
 /**
  * Generate a contribution event for benchmarking.
@@ -51,7 +52,10 @@ function generateVerificationEvent(index: number): object {
 async function post<T>(path: string, body: unknown): Promise<T> {
     const response = await fetch(`${API_URL}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': API_KEY
+        },
         body: JSON.stringify(body)
     });
     return response.json() as Promise<T>;
@@ -63,7 +67,10 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 async function get<T>(path: string): Promise<T> {
     const response = await fetch(`${API_URL}${path}`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': API_KEY
+        }
     });
     return response.json() as Promise<T>;
 }

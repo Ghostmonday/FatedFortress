@@ -166,7 +166,7 @@ export async function createTicket(input: z.infer<typeof CreateTicketInputSchema
 }
 
 /**
- * Claim a ticket - requires sufficient staked REP
+ * Claim a ticket - auto-stakes from current REP if needed
  */
 export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>) {
   const { actorId, ticketId } = ClaimTicketInputSchema.parse(input);
@@ -179,13 +179,31 @@ export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>)
 
     const actor = await tx.actorState.findUniqueOrThrow({ where: { actorId } });
 
+    // Auto-stake if insufficient staked REP but has current REP
+    let stakeAmount = ticket.bondRequired;
+    let autoStaked = false;
+    
     if (actor.stakedRep < ticket.bondRequired) {
-      throw new Error(`Insufficient staked REP: have ${actor.stakedRep}, need ${ticket.bondRequired}`);
+      const needed = ticket.bondRequired - actor.stakedRep;
+      if (actor.currentRep >= needed) {
+        // Auto-stake from current REP
+        await tx.actorState.update({
+          where: { actorId },
+          data: {
+            currentRep: { decrement: needed },
+            stakedRep: { increment: needed },
+          },
+        });
+        stakeAmount = ticket.bondRequired; // Now we have enough
+        autoStaked = true;
+      } else {
+        throw new Error(`Insufficient REP: have ${actor.currentRep} liquid + ${actor.stakedRep} staked, need ${ticket.bondRequired}`);
+      }
     }
 
     // Create stake for this ticket
     const stake = await tx.stake.create({
-      data: { actorId, amount: ticket.bondRequired, ticketId, status: 'ACTIVE' },
+      data: { actorId, amount: stakeAmount, ticketId, status: 'ACTIVE' },
     });
 
     // Update ticket status
@@ -200,9 +218,10 @@ export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>)
       stakeId: stake.id,
       title: ticket.title,
       deadline: ticket.deadline,
+      autoStaked,
     });
 
-    return { ticket: updatedTicket, stake };
+    return { ticket: updatedTicket, stake, autoStaked };
   });
 }
 

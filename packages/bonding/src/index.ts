@@ -179,7 +179,7 @@ export async function createTicket(input: z.infer<typeof CreateTicketSchema>) {
 }
 
 /**
- * Claim a ticket - requires sufficient staked REP
+ * Claim a ticket - auto-stakes from current REP if needed
  */
 export async function claimTicket(input: z.infer<typeof ClaimTicketSchema>) {
   const { actorId, ticketId } = ClaimTicketSchema.parse(input);
@@ -201,15 +201,33 @@ export async function claimTicket(input: z.infer<typeof ClaimTicketSchema>) {
       where: { actorId },
     });
 
+    // Auto-stake if insufficient staked REP but has current REP
+    let stakeAmount = ticket.bondRequired;
+    let autoStaked = false;
+    
     if (actor.stakedRep < ticket.bondRequired) {
-      throw new Error(`Insufficient staked REP: have ${actor.stakedRep}, need ${ticket.bondRequired}`);
+      const needed = ticket.bondRequired - actor.stakedRep;
+      if (actor.currentRep >= needed) {
+        // Auto-stake from current REP
+        await tx.actorState.update({
+          where: { actorId },
+          data: {
+            currentRep: { decrement: needed },
+            stakedRep: { increment: needed },
+          },
+        });
+        stakeAmount = ticket.bondRequired;
+        autoStaked = true;
+      } else {
+        throw new Error(`Insufficient REP: have ${actor.currentRep} liquid + ${actor.stakedRep} staked, need ${ticket.bondRequired}`);
+      }
     }
 
     // Create a stake specifically for this ticket
     const stake = await tx.stake.create({
       data: {
         actorId,
-        amount: ticket.bondRequired,
+        amount: stakeAmount,
         ticketId,
         status: 'ACTIVE',
       },

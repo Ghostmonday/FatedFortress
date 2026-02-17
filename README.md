@@ -1,337 +1,212 @@
 # The Void
 
-### *Where Reputation Is Earned, Not Claimed*
+### *Sovereign Telemetry-Verified Talent Marketplace*
 
 ---
 
-## The Problem
+## Abstract
 
-You're a developer. You've built things. You've shipped products. You've collaborated with teams that actually delivered.
-
-But your LinkedIn profile? It's a collection of buzzwords and inflated titles. Your resume? A creative writing exercise. Your contribution graph? Artfully gamed.
-
-The professional world runs on a currency that's entirely fictional: *claimed* reputation. You say you're a senior engineer. I say I am too. Anyone can say anything. The whole system is theater.
-
-Until now.
+The Void implements a cryptoeconomic reputation protocol designed to replace self-reported credentials with behaviorally-verified competency assertions. The system leverages event-sourced state machines, distributed locking mechanisms, and temporal decay functions to establish an immutable, multi-dimensional XP profile that serves as the sole source of truth for professional capability assessment.
 
 ---
 
-## The Vision
+## Architectural Overview
 
-The Void is a sovereign talent marketplace that replaces the fiction of credentials with the immutable truth of behavior.
-
-We don't care what you *say* you can do. We care about what you *actually* do. Every code review. Every merged PR. Every deadline met. Every deadline missed. Every collaboration. Every failure. Every success.
-
-We capture it all.
-
-Then we turn it into something undeniable: a multi-dimensional XP Profile that proves — with data, not words — exactly what you're capable of.
+### Core Tenet
+The platform operates on a fundamental postulate: **claimed reputation is non-fungible noise; demonstrated competence is verifiable signal.** Every action constitutes an append-only event, enabling complete auditability and mathematical reconstruction of any actor's competency profile.
 
 ---
 
-## What Makes The Void Different
+## Implemented Subsystems
 
-| Traditional Platforms | The Void |
-|---------------------|----------|
-| Self-reported skills | Telemetry-verified expertise |
-| Static resumes | Dynamic, live profiles |
-| Connections based on who you know | Teams formed on who you've proven to be |
-| Reputation that grows forever | XP that decays, keeping you honest |
-| Job applications | Reputation-driven matching |
+### 1. Domain-Bonding Protocol (Staking Mechanism)
 
----
+A collateralized commitment system wherein actors lock Reputation Points (REP) as economic skin-in-the-game when claiming tickets.
 
-## The Mechanics
+**State Transitions:**
+- **ACTIVE** → **RELEASED**: On-time completion yields stake return + XP bounty
+- **ACTIVE** → **RELEASED** (late): Proportional XP reduction
+- **ACTIVE** → **FORFEITED**: Deadline miss triggers slash operation
 
-### Staking: Skin in the Game
+The protocol enforces **economic finality** — once a stake enters FORFEITED state, the REP is irrevocably burned from the actor's liquid balance.
 
-When you claim a task in The Void, you don't just sign up. You *stake* your reputation. You lock your REP (reputation points) as collateral.
+### 2. The Reaper (Automated Slash Orchestrator)
 
-Here's the deal:
+A cron-based enforcement daemon implementing:
 
-- **You complete on time**: Your stake returns, plus XP rewards. Everyone sees you deliver.
-- **You complete late**: Partial return. Reduced XP. The system remembers.
-- **You miss the deadline**: Your stake gets *slashed*. Burned. Gone. Your reputation takes a hit.
+- **Distributed Locking**: Redis-based mutex ensures single-instance execution across multi-server deployments
+- **Batch Processing with Time Budgeting**: Prevents O(n) blocking on large overdue ticket sets
+- **Lazy Enforcement**: Deadline validation at interaction-time mitigates downtime exploitation vectors
+- **Observability**: Structured logging with run IDs and heartbeat telemetry
 
-This isn't theoretical. The **Reaper** — our automated enforcement system — runs continuously, catching overdue tickets and executing the forfeiture. It's brutal, fair, and completely automated.
+The Reaper operates on a configurable interval (default: 5 minutes) and executes proportional slashing (configurable percentage) on detected FORFEITED stakes.
 
-### The Reaper
+### 3. Temporal XP Decay Engine
 
-The Reaper is the economic heartbeat of The Void. Every few minutes, it scans for tickets past their deadline and burns the associated stakes.
+All experience points are subjected to exponential time-decay:
 
-We've built it to handle real-world chaos:
+```
+Xp_effective = Xp_initial × e^(-λ × Δt)
+```
 
-- **Multiple servers? No problem.** Redis-based distributed locking ensures only one instance runs at a time.
-- **Thousands of overdue tickets? Handled.** Batch processing with time budgets prevents the system from freezing.
-- **Reaper goes down? Still covered.** Our lazy enforcement checks deadlines at interaction time too — users can't exploit downtime to skip penalties.
-- **Something breaks? You'll know.** Run IDs, heartbeats, and structured logging mean debugging isn't a guessing game.
+Where λ represents the actor-specific decay coefficient. This ensures profiles represent **current** capability rather than historical artifacts — a 2019 contribution carries negligible weight versus Q1 2024 output.
 
-This is financial infrastructure, not a side project. We treat it accordingly.
+### 4. Multi-Vector Matchmaking Algorithm
 
-### XP That Decays
+The team formation engine ingests:
 
-Your code from 2019 shouldn't count as much as code you wrote last week. So it doesn't.
+- Domain expertise tensors across N axes
+- Collaboration coefficient matrices (derived from historical co-contributions)
+- Resource availability vectors
+- Trust gradient graphs (voucher-weighted directed edges)
 
-The Void applies time-based decay to all XP. Old contributions slowly fade. Recent work matters more. Your profile is a *current* snapshot of what you bring, not a museum of everything you've ever done.
+Output: Optimized team composition minimizing expected project failure probability.
 
-### Team Formation: No More Lucky Guesses
+### 5. Event Sourcing Foundation
 
-Traditional teams form through resumes, interviews, and hope. The Void's matchmaker analyzes actual performance data to suggest perfect team compositions:
+Every state mutation is codified as an immutable Event:
 
-- Your domain expertise across multiple axes
-- How well you've collaborated historically
-- Your current capacity and availability
-- Trust gradients — who vouches for whom, and how strongly
+```
+Event { id, actorId, type, payload, timestamp }
+```
 
-When The Void suggests a team, it's not guessing. It's calculating.
+This enables:
+- Full state reconstruction via fold operations
+- Temporal queries (actor state at T-1)
+- Fraud-resistant audit trails
 
----
+### 6. GitHub Webhook Integration
 
-## The Stack
-
-We built this with modern, battle-tested tools:
-
-- **Runtime**: Node.js 20+
-- **Language**: TypeScript, everywhere
-- **Package Management**: pnpm workspaces
-- **Build System**: Turborepo
-- **API**: Fastify — fast, type-safe, extensible
-- **Database**: SQLite via Prisma
-- **Validation**: Zod
-- **Testing**: Vitest
-- **Frontend**: Next.js
+The `/webhooks/github` endpoint ingests push, PR, and review events, automatically populating contributor profiles via webhook signature verification.
 
 ---
 
-## Project Structure
+## Technical Infrastructure
+
+### Runtime Environment
+- **Runtime**: Node.js 20+ (event-driven non-blocking I/O)
+- **Language**: TypeScript (strict mode, full type coverage)
+- **Package Manager**: pnpm workspaces (monorepo hoisting)
+- **Build Orchestration**: Turborepo (caching, parallelization)
+
+### Application Layer
+- **API Gateway**: Fastify (low-overhead, schema-validated)
+- **Database**: SQLite via Prisma ORM (type-safe migrations)
+- **Validation**: Zod (runtime schema inference)
+- **Testing**: Vitest (snapshot-based, parallel execution)
+
+### Presentation Layer
+- **Frontend**: Next.js (React SSR/SSG framework)
+
+---
+
+## Monorepo Topology
 
 ```
 thevoid/
 ├── apps/
-│   ├── api/           # The heart — Fastify REST API
+│   ├── api/           # Fastify REST gateway (port 3000)
 │   ├── web/           # Next.js frontend
 │   ├── server/        # Entry point
-│   └── swarm/        # Simulation for testing economic models
+│   └── swarm/        # Economic simulation/stress testing
 ├── packages/
-│   ├── @fated/       # Core domain packages
-│   │   ├── core/           # Event schemas, base types
-│   │   ├── db/             # Prisma and database layer
-│   │   ├── types/          # Shared type definitions
-│   │   ├── events/         # Event sourcing foundations
-│   │   ├── domain-bonding/ # Staking, tickets, forfeiture
-│   │   ├── domain-xp/      # XP calculation, decay, trust
-│   │   ├── domain-matching/# Team formation logic
-│   │   └── infra-*/       # Infrastructure implementations
-│   └── [legacy packages]
+│   ├── @fated/
+│   │   ├── core/           # Event schemas, DDD aggregates
+│   │   ├── db/             # Prisma client, migration layer
+│   │   ├── types/          # TypeScript interfaces
+│   │   ├── events/         # Event store implementation
+│   │   ├── domain-bonding/ # Stake state machine
+│   │   ├── domain-xp/      # XP calculation, decay logic
+│   │   ├── domain-matching/# Team formation algorithms
+│   │   └── infra-*/       # Redis, logging, config adapters
 └── scripts/           # Build automation
 ```
 
 ---
 
-## Getting Started
+## Data Model (Prisma Schema)
 
-### Quick Start
-
-```bash
-# Clone and enter
-git clone https://github.com/Ghostmonday/thevoid.git
-cd thevoid
-
-# Install everything
-pnpm install
-
-# Spin up Prisma
-pnpm prisma generate
-
-# Fire it up
-pnpm dev
+**ActorState**
+```
+actorId, currentRep, stakedRep, currentXp, decayRate
 ```
 
-The API runs on `http://localhost:3000` by default.
+**Stake**
+```
+id, actorId, amount, ticketId, status (ACTIVE|RELEASED|FORFEITED)
+```
 
-### Environment
+**Ticket**
+```
+id, title, bondRequired, claimedBy, status (OPEN|CLAIMED|COMPLETED|FORFEITED), deadline
+```
 
-| Variable | What It Does | Default |
-|----------|--------------|---------|
-| `DATABASE_URL` | SQLite file path | `file:./dev.db` |
-| `PORT` | API port | `3000` |
-| `REDIS_URL` | Redis for locks | `redis://localhost:6379` |
-| `REAPER_INTERVAL_MS` | How often Reaper runs | `300000` (5 min) |
-| `REAPER_SLASH_PERCENT` | Slash rate on forfeiture | `0.5` |
+**Event**
+```
+id, actorId, type, payload (JSON), timestamp
+```
 
 ---
 
-## API Endpoints
+## API Surface
 
 ### Staking
+- `POST /stake` — Lock REP
+- `POST /unstake` — Release stake
 
-```
-POST /stake
-```
+### Task Management
+- `POST /ticket` — Create ticket
+- `POST /claim` — Claim + auto-stake
+- `POST /complete` — Verify completion (triggers lazy slash if overdue)
 
-Lock REP into a stake. Requires `{ actorId, amount }`.
-
-```
-POST /unstake
-```
-
-Release a completed stake. Requires `{ actorId, stakeId }`.
-
-### Tickets
-
-```
-POST /ticket
-```
-
-Create a new task. Requires `{ workPackageId, title, bondRequired, deadline }`.
-
-```
-POST /claim
-```
-
-Claim a ticket and auto-stake. Requires `{ actorId, ticketId }`.
-
-```
-POST /complete
-```
-
-Mark done, return stake, award XP. Requires `{ ticketId, verifierId }`.
-
-*If the deadline passed, this triggers lazy forfeiture — the stake gets slashed immediately, even if the Reaper hasn't run.*
-
-### Reputation
-
-```
-GET /leaderboard
-```
-
-Top contributors, ranked.
-
-```
-GET /analytics/summary
-```
-
-System-wide stats.
-
-```
-GET /analytics/leaderboard/rep
-```
-
-REP-richest actors.
+### Analytics
+- `GET /leaderboard` — Top contributors
+- `GET /analytics/summary` — System metrics
+- `GET /analytics/leaderboard/rep` — REP rankings
 
 ### Events
+- `POST /contribute` — Record contribution
+- `POST /verify` — Verify contribution
 
-```
-POST /contribute
-POST /verify
-```
+### Integration
+- `POST /webhooks/github` — GitHub event ingestion
 
-Record and verify contribution events.
-
-### Webhooks
-
-```
-POST /webhooks/github
-```
-
-GitHub integration. Push events, PRs, and reviews auto-populate your profile.
-
-### Admin
-
-```
-POST /admin/reaper
-GET /admin/reaper/status
-POST /admin/sim/stress
-DELETE /admin/sim/reset
-```
-
-Reaper control and simulation tools.
+### Administration
+- `POST /admin/reaper` — Trigger Reaper execution
+- `GET /admin/reaper/status` — Reaper health
+- `POST /admin/sim/stress` — Load injection
+- `DELETE /admin/sim/reset` — State reset
 
 ---
 
-## The Database
+## Configuration
 
-Four core models power everything:
-
-**ActorState** — Every participant
-```prisma
-actorId       String  @id
-currentRep   Float   // Liquid REP you can spend
-stakedRep    Float   // Locked in active stakes
-currentXp    Int     // Your total XP
-decayRate    Float   // How fast your XP ages
-```
-
-**Stake** — Collateral on the line
-```prisma
-id          String  @id
-actorId     String
-amount      Float
-ticketId    String? // Link to the task
-status      String  // ACTIVE | RELEASED | FORFEITED
-```
-
-**Ticket** — The work itself
-```prisma
-id           String   @id
-title        String
-bondRequired Float    // REP needed to claim
-claimedBy    String?
-status       String   // OPEN | CLAIMED | COMPLETED | FORFEITED
-deadline     DateTime
-```
-
-**Event** — The immutable record
-```prisma
-id        String   @id
-actorId   String
-type      String   // What happened
-payload   String   // JSON data
-timestamp DateTime
-```
-
-Every action in The Void is an event. Everything is traceable. Nothing is lost.
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DATABASE_URL` | SQLite path | `file:./dev.db` |
+| `PORT` | API port | `3000` |
+| `REDIS_URL` | Lock backend | `redis://localhost:6379` |
+| `REAPER_INTERVAL_MS` | Execution interval | `300000` |
+| `REAPER_SLASH_PERCENT` | Slash rate | `0.5` |
 
 ---
 
-## Running Tests
+## Operational Commands
 
 ```bash
-# Full suite
-pnpm test
-
-# Specific package
-pnpm --filter @fated/bonds test
-
-# With coverage
+pnpm install
+pnpm prisma generate
+pnpm dev
 pnpm test --coverage
 ```
 
 ---
 
-## Contributing
+## Thesis
 
-We welcome builders. Just make sure:
-
-1. Tests pass
-2. Types compile
-3. You don't break the economics
+The professional labor market suffers from information asymmetry: credentials are theater, resumes are creative writing, and claimed expertise is non-verifiable. The Void eliminates this asymmetry through behavioral telemetry, economic stake mechanisms, and mathematically-enforced temporal relevance. Reputation is no longer claimed — it is computed.
 
 ---
 
-## The Point
+*Everything is observed. Everything is recorded. Everything decays.*
 
-The professional world is broken. It's built on trust without proof. On claims without evidence. On theater instead of truth.
-
-The Void fixes this.
-
-Your reputation isn't what you say. It's what you *do*. And we're watching.
-
----
-
-## Links
-
-- **GitHub**: https://github.com/Ghostmonday/thevoid
-
----
-
-*The Void sees everything. And now, so can you.*

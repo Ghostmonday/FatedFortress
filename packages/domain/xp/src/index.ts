@@ -24,7 +24,7 @@ const XP_CONFIG = {
     8: 2.5,
     9: 3.0,
     10: 4.0,
-  },
+  } as Record<number, number>,
   SPECIALTY_BONUS: {
     BACKEND: 1.2,
     FRONTEND: 1.2,

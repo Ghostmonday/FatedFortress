@@ -39,7 +39,7 @@ describe('InMemoryEventStore', () => {
 
   it('should hydrate from database', async () => {
     const fullEvent = {
-        id: 'ev-1',
+        id: '550e8400-e29b-41d4-a716-446655440001',
         type: 'PROJECT_CREATED',
         payload: { projectId: 'p1', name: 'Test Project', domain: 'BACKEND' },
         timestamp: new Date().toISOString(),
@@ -86,7 +86,7 @@ describe('InMemoryEventStore', () => {
 
     // Verify events loaded
     expect(store.count).toBe(1);
-    expect(store.getAll()[0].id).toBe('ev-1');
+    expect(store.getAll()[0].id).toBe('550e8400-e29b-41d4-a716-446655440001');
 
     // Verify state loaded
     const state = store.getState();

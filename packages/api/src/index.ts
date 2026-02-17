@@ -157,6 +157,90 @@ fastify.get('/team', async () => {
 });
 
 // ============================================
+// MATCHMAKER
+// ============================================
+
+interface Developer {
+  user_id: string;
+  skills: Record<string, number>;
+}
+
+interface ProjectRequirements {
+  [role: string]: number;
+}
+
+interface MatchRequest {
+  project_requirements?: ProjectRequirements;
+  available_developers?: Developer[];
+}
+
+fastify.post('/api/match', async (request: FastifyRequest<{ Body: MatchRequest }>, reply) => {
+  const { project_requirements, available_developers } = request.body;
+  
+  // If no developers provided, get from store
+  let developers = available_developers;
+  
+  if (!developers || developers.length === 0) {
+    // Get developers from store or database
+    const state = store.getState();
+    developers = Array.from(state.values()).map(u => ({
+      user_id: u.userId,
+      skills: { 
+        frontend: Math.floor(u.totalXP / 100) % 10, 
+        backend: Math.floor(u.totalXP / 100) % 10 
+      },
+    }));
+    
+    // If still no developers, create some mock ones
+    if (developers.length === 0) {
+      developers = [
+        { user_id: 'dev1', skills: { frontend: 8, backend: 5 } },
+        { user_id: 'dev2', skills: { frontend: 3, backend: 9 } },
+        { user_id: 'dev3', skills: { frontend: 7, backend: 6 } },
+        { user_id: 'dev4', skills: { frontend: 5, backend: 7 } },
+      ];
+    }
+  }
+  
+  // Default requirements if not provided
+  const requirements = project_requirements || { frontend: 2, backend: 2 };
+  
+  // Simple greedy matching algorithm
+  const assignments: Array<{ developer: string; role: string; skill_level: number }> = [];
+  const usedDevelopers = new Set<string>();
+  const requiredRoles = Object.entries(requirements);
+  
+  for (const [role, count] of requiredRoles) {
+    let assigned = 0;
+    // Sort developers by skill level for this role (descending)
+    const sortedDevs = [...developers]
+      .filter(d => !usedDevelopers.has(d.user_id))
+      .sort((a, b) => (b.skills[role] || 0) - (a.skills[role] || 0));
+    
+    for (const dev of sortedDevs) {
+      if (assigned >= count) break;
+      const skillLevel = dev.skills[role] || 0;
+      if (skillLevel > 0) {
+        assignments.push({
+          developer: dev.user_id,
+          role,
+          skill_level: skillLevel,
+        });
+        usedDevelopers.add(dev.user_id);
+        assigned++;
+      }
+    }
+  }
+  
+  return {
+    project_requirements: requirements,
+    assignments,
+    unassigned: developers.filter(d => !usedDevelopers.has(d.user_id)).map(d => d.user_id),
+    total_assigned: assignments.length,
+  };
+});
+
+// ============================================
 // GITHUB WEBHOOK
 // ============================================
 
@@ -235,7 +319,7 @@ fastify.post('/unstake', async (request: FastifyRequest<{ Body: { actorId: strin
   }
   try {
     const result = await releaseStake({ actorId, stakeId });
-    return { success: true, ...result };
+    return result;
   } catch (err) {
     return reply.status(400).send({ error: (err as Error).message });
   }
@@ -327,8 +411,8 @@ let redisAvailable = false;
 // Try to initialize Redis
 async function initRedis() {
   try {
-    // Dynamic import to avoid hard dependency
-    const Redis = (await import('ioredis')).default;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Redis = require('ioredis');
     const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
     redisClient = new Redis(redisUrl);
     
@@ -418,8 +502,7 @@ async function runReaper(): Promise<{ processed: number; results: Array<{ ticket
   try {
     console.log(`[Reaper] Starting cycle ${runId.slice(0, 8)}`);
     
-    const result = await processForfeitures(REAPER_CONFIG.slashPercent);
-    const results = result.results || [];
+    const results = await processForfeitures(REAPER_CONFIG.slashPercent);
     
     if (results.length > 0) {
       console.log(`[Reaper] 💀 Executed ${results.length} forfeitures`);
@@ -431,7 +514,7 @@ async function runReaper(): Promise<{ processed: number; results: Array<{ ticket
     // Update heartbeat to prove we're alive
     await updateHeartbeat();
     
-    console.log(`[Reaper] Cycle ${runId.slice(0, 8)} complete: ${results.length} processed, ${result.totalFailed || 0} failed`);
+    console.log(`[Reaper] Cycle ${runId.slice(0, 8)} complete: ${results.length} processed, 0 failed`);
     
     return { processed: results.length, results };
   } catch (err) {

@@ -7,7 +7,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@fated/api": "workspace:*"
+    "@fated/simple-api": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

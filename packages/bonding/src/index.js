@@ -1,0 +1,482 @@
+import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
+// Lazy initialization - only create PrismaClient when needed
+let _prisma;
+function getPrisma() {
+    if (!_prisma) {
+        _prisma = new PrismaClient();
+    }
+    return _prisma;
+}
+// ============================================
+// SCHEMAS
+// ============================================
+export const StakeSchema = z.object({
+    actorId: z.string().uuid(),
+    amount: z.number().positive(),
+});
+export const UnstakeSchema = z.object({
+    actorId: z.string().uuid(),
+    stakeId: z.string().uuid(),
+});
+export const CreateTicketSchema = z.object({
+    workPackageId: z.string(),
+    title: z.string(),
+    description: z.string().optional(),
+    bondRequired: z.number().positive(),
+    deadline: z.coerce.date(),
+});
+export const ClaimTicketSchema = z.object({
+    actorId: z.string().uuid(),
+    ticketId: z.string().uuid(),
+});
+export const CompleteTicketSchema = z.object({
+    ticketId: z.string().uuid(),
+    verifierId: z.string().uuid(), // Who verified the work
+});
+// ============================================
+// STAKE OPERATIONS
+// ============================================
+/**
+ * Place a stake - locks REP from user's liquid balance
+ */
+export async function stakeRep(input) {
+    const { actorId, amount } = StakeSchema.parse(input);
+    return getPrisma().$transaction(async (tx) => {
+        const actor = await tx.actorState.findUnique({
+            where: { actorId },
+        });
+        if (!actor) {
+            // Initialize actor if doesn't exist
+            await tx.actorState.create({
+                data: { actorId, currentRep: 0, stakedRep: 0 },
+            });
+        }
+        const currentActor = await tx.actorState.findUniqueOrThrow({
+            where: { actorId },
+        });
+        if (currentActor.currentRep < amount) {
+            throw new Error(`Insufficient REP: have ${currentActor.currentRep}, need ${amount}`);
+        }
+        // Move REP from liquid to staked
+        await tx.actorState.update({
+            where: { actorId },
+            data: {
+                currentRep: { decrement: amount },
+                stakedRep: { increment: amount },
+            },
+        });
+        // Create stake record
+        const stake = await tx.stake.create({
+            data: {
+                actorId,
+                amount,
+                status: 'ACTIVE',
+            },
+        });
+        // Emit event
+        await emitEvent(tx, actorId, 'STAKE_PLACED', {
+            stakeId: stake.id,
+            amount,
+            totalStaked: currentActor.stakedRep + amount,
+        });
+        return stake;
+    });
+}
+/**
+ * Release a stake - returns REP to liquid balance
+ * Only allows releasing stakes not tied to active tickets
+ */
+export async function releaseStake(input) {
+    const { actorId, stakeId } = UnstakeSchema.parse(input);
+    return getPrisma().$transaction(async (tx) => {
+        const stake = await tx.stake.findFirst({
+            where: { id: stakeId, actorId, status: 'ACTIVE' },
+        });
+        if (!stake) {
+            throw new Error('Stake not found or already released');
+        }
+        // Check if stake is linked to an active ticket
+        if (stake.ticketId) {
+            const ticket = await tx.ticket.findUnique({
+                where: { id: stake.ticketId },
+            });
+            if (ticket && ticket.status === 'CLAIMED') {
+                throw new Error('Cannot release stake tied to active ticket');
+            }
+        }
+        // Return REP to liquid balance
+        await tx.actorState.update({
+            where: { actorId },
+            data: {
+                currentRep: { increment: stake.amount },
+                stakedRep: { decrement: stake.amount },
+            },
+        });
+        // Update stake status
+        await tx.stake.update({
+            where: { id: stakeId },
+            data: { status: 'RELEASED', releasedAt: new Date() },
+        });
+        // Emit event
+        await emitEvent(tx, actorId, 'STAKE_RELEASED', {
+            stakeId: stake.id,
+            amount: stake.amount,
+        });
+        return { success: true, stakeId };
+    });
+}
+// ============================================
+// TICKET OPERATIONS
+// ============================================
+/**
+ * Create a new ticket (work package)
+ */
+export async function createTicket(input) {
+    const data = CreateTicketSchema.parse(input);
+    const ticket = await getPrisma().ticket.create({
+        data: {
+            workPackageId: data.workPackageId,
+            title: data.title,
+            description: data.description,
+            bondRequired: data.bondRequired,
+            deadline: data.deadline,
+            status: 'OPEN',
+        },
+    });
+    return ticket;
+}
+/**
+ * Claim a ticket - auto-stakes from current REP if needed
+ */
+export async function claimTicket(input) {
+    const { actorId, ticketId } = ClaimTicketSchema.parse(input);
+    return getPrisma().$transaction(async (tx) => {
+        const ticket = await tx.ticket.findUnique({
+            where: { id: ticketId },
+        });
+        if (!ticket) {
+            throw new Error('Ticket not found');
+        }
+        if (ticket.status !== 'OPEN') {
+            throw new Error(`Ticket is ${ticket.status}, not available`);
+        }
+        const actor = await tx.actorState.findUniqueOrThrow({
+            where: { actorId },
+        });
+        // Auto-stake if insufficient staked REP but has current REP
+        let stakeAmount = ticket.bondRequired;
+        let autoStaked = false;
+        if (actor.stakedRep < ticket.bondRequired) {
+            const needed = ticket.bondRequired - actor.stakedRep;
+            if (actor.currentRep >= needed) {
+                // Auto-stake from current REP
+                await tx.actorState.update({
+                    where: { actorId },
+                    data: {
+                        currentRep: { decrement: needed },
+                        stakedRep: { increment: needed },
+                    },
+                });
+                stakeAmount = ticket.bondRequired;
+                autoStaked = true;
+            }
+            else {
+                throw new Error(`Insufficient REP: have ${actor.currentRep} liquid + ${actor.stakedRep} staked, need ${ticket.bondRequired}`);
+            }
+        }
+        // Create a stake specifically for this ticket
+        const stake = await tx.stake.create({
+            data: {
+                actorId,
+                amount: stakeAmount,
+                ticketId,
+                status: 'ACTIVE',
+            },
+        });
+        // Update ticket status
+        const updatedTicket = await tx.ticket.update({
+            where: { id: ticketId },
+            data: {
+                claimedBy: actorId,
+                claimedAt: new Date(),
+                status: 'CLAIMED',
+            },
+        });
+        // Emit event
+        await emitEvent(tx, actorId, 'TICKET_CLAIMED', {
+            ticketId: ticket.id,
+            stakeId: stake.id,
+            title: ticket.title,
+            deadline: ticket.deadline,
+        });
+        return { ticket: updatedTicket, stake };
+    });
+}
+/**
+ * Complete a ticket - returns stake + awards REP
+ */
+export async function completeTicket(input) {
+    const { ticketId, verifierId } = CompleteTicketSchema.parse(input);
+    return getPrisma().$transaction(async (tx) => {
+        const ticket = await tx.ticket.findUnique({
+            where: { id: ticketId },
+            include: { stake: true },
+        });
+        if (!ticket) {
+            throw new Error('Ticket not found');
+        }
+        if (ticket.status !== 'CLAIMED') {
+            throw new Error(`Ticket is ${ticket.status}, cannot complete`);
+        }
+        if (!ticket.claimedBy || !ticket.stake) {
+            throw new Error('Ticket has no claimant or stake');
+        }
+        // LAZY ENFORCEMENT: Check deadline and trigger forfeiture if overdue
+        // This ensures economic rules are enforced at interaction time, not just by background job
+        if (ticket.deadline && new Date(ticket.deadline) < new Date()) {
+            // Ticket is overdue - execute forfeiture inline
+            const slashPercent = 0.5; // Same as Reaper default
+            const slashAmount = ticket.stake.amount * slashPercent;
+            const returnAmount = ticket.stake.amount - slashAmount;
+            // Update ticket status to FORFEITED
+            await tx.ticket.update({
+                where: { id: ticket.id },
+                data: { status: 'FORFEITED' },
+            });
+            // Update stake to FORFEITED
+            await tx.stake.update({
+                where: { id: ticket.stake.id },
+                data: { status: 'FORFEITED' },
+            });
+            // Slash the REP
+            if (returnAmount > 0) {
+                await tx.actorState.update({
+                    where: { actorId: ticket.claimedBy },
+                    data: {
+                        stakedRep: { decrement: ticket.stake.amount },
+                        currentRep: { increment: returnAmount },
+                    },
+                });
+            }
+            else {
+                await tx.actorState.update({
+                    where: { actorId: ticket.claimedBy },
+                    data: {
+                        stakedRep: { decrement: ticket.stake.amount },
+                    },
+                });
+            }
+            // Emit forfeiture event
+            await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+                ticketId: ticket.id,
+                title: ticket.title,
+                originalStake: ticket.stake.amount,
+                slashed: slashAmount,
+                returned: returnAmount,
+                reason: 'lazy_forfeiture',
+            });
+            throw new Error('Ticket deadline missed - stake has been forfeited');
+        }
+        // Return staked REP to liquid
+        await tx.actorState.update({
+            where: { actorId: ticket.claimedBy },
+            data: {
+                currentRep: { increment: ticket.stake.amount },
+                stakedRep: { decrement: ticket.stake.amount },
+            },
+        });
+        // Update stake to released
+        await tx.stake.update({
+            where: { id: ticket.stake.id },
+            data: { status: 'RELEASED', releasedAt: new Date() },
+        });
+        // Update ticket status
+        const updatedTicket = await tx.ticket.update({
+            where: { id: ticketId },
+            data: {
+                status: 'COMPLETED',
+                completedAt: new Date(),
+            },
+        });
+        // Emit completion event
+        await emitEvent(tx, ticket.claimedBy, 'TICKET_COMPLETED', {
+            ticketId: ticket.id,
+            title: ticket.title,
+            bondReturned: ticket.stake.amount,
+            verifiedBy: verifierId,
+        });
+        return { ticket: updatedTicket, returnedAmount: ticket.stake.amount };
+    });
+}
+// ============================================
+// FORFEITURE LOGIC
+// ============================================
+/**
+ * Process overdue tickets - slash staked REP
+ * Implements batching, time budget, and fair ordering
+ * @param slashPercent - percentage of stake to burn (0-1)
+ * @param batchSize - max tickets per batch (default 50)
+ * @param timeBudgetMs - max time per cycle in ms (default 5000)
+ */
+export async function processForfeitures(slashPercent = 0.5, batchSize = 50, timeBudgetMs = 5000) {
+    const results = [];
+    const errors = [];
+    const startTime = Date.now();
+    // Process in batches with time budget
+    let hasMore = true;
+    while (hasMore) {
+        // Check time budget - stop if we're taking too long
+        if (Date.now() - startTime > timeBudgetMs) {
+            console.log(`[Forfeiture] Time budget exhausted yielding, for next cycle`);
+            break;
+        }
+        // Fetch batch of overdue tickets, ordered by deadline (oldest first - fairness)
+        const overdueTickets = await getPrisma().ticket.findMany({
+            where: {
+                status: 'CLAIMED',
+                deadline: { lt: new Date() },
+            },
+            take: batchSize,
+            orderBy: { deadline: 'asc' },
+            include: { stake: true, actor: true },
+        });
+        // No more tickets to process
+        if (overdueTickets.length === 0) {
+            hasMore = false;
+            break;
+        }
+        // Process each ticket with isolated error handling
+        for (const ticket of overdueTickets) {
+            try {
+                if (!ticket.stake || !ticket.claimedBy)
+                    continue;
+                const slashAmount = ticket.stake.amount * slashPercent;
+                const returnAmount = ticket.stake.amount - slashAmount;
+                await getPrisma().$transaction(async (tx) => {
+                    // Double-check status hasn't changed (idempotency)
+                    const currentTicket = await tx.ticket.findUnique({
+                        where: { id: ticket.id },
+                    });
+                    if (currentTicket?.status !== 'CLAIMED') {
+                        // Already processed, skip
+                        return;
+                    }
+                    // Update ticket status
+                    await tx.ticket.update({
+                        where: { id: ticket.id },
+                        data: { status: 'FORFEITED' },
+                    });
+                    // Update stake to forfeited
+                    await tx.stake.update({
+                        where: { id: ticket.stake.id },
+                        data: { status: 'FORFEITED' },
+                    });
+                    // Handle REP: slash some, return remainder
+                    if (returnAmount > 0) {
+                        await tx.actorState.update({
+                            where: { actorId: ticket.claimedBy },
+                            data: {
+                                stakedRep: { decrement: ticket.stake.amount },
+                                currentRep: { increment: returnAmount },
+                            },
+                        });
+                    }
+                    else {
+                        // All staked REP is burned
+                        await tx.actorState.update({
+                            where: { actorId: ticket.claimedBy },
+                            data: {
+                                stakedRep: { decrement: ticket.stake.amount },
+                            },
+                        });
+                    }
+                    // Emit forfeiture event
+                    await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+                        ticketId: ticket.id,
+                        title: ticket.title,
+                        originalStake: ticket.stake.amount,
+                        slashed: slashAmount,
+                        returned: returnAmount,
+                    });
+                    results.push({
+                        ticketId: ticket.id,
+                        slashed: slashAmount,
+                        returned: returnAmount,
+                    });
+                });
+            }
+            catch (err) {
+                // Log error but continue with next ticket - don't kill the batch
+                const errorMsg = err instanceof Error ? err.message : String(err);
+                console.error(`[Forfeiture] Failed to forfeit ticket ${ticket.id}:`, errorMsg);
+                errors.push({ ticketId: ticket.id, error: errorMsg });
+            }
+        }
+        // If we got a full batch, there might be more - continue
+        // Otherwise we're done
+        hasMore = overdueTickets.length === batchSize;
+    }
+    // Log summary
+    if (results.length > 0 || errors.length > 0) {
+        console.log(`[Forfeiture] Cycle complete: ${results.length} processed, ${errors.length} failed`);
+    }
+    return { results, errors, totalProcessed: results.length, totalFailed: errors.length };
+}
+// ============================================
+// UTILITIES
+// ============================================
+async function emitEvent(tx, actorId, type, payload) {
+    const event = await tx.event.create({
+        data: {
+            id: crypto.randomUUID(),
+            actorId,
+            streamId: `bonding-${Date.now()}`,
+            timestamp: new Date(),
+            type,
+            payload: JSON.stringify(payload),
+        },
+    });
+    return event;
+}
+/**
+ * Get user's staking summary
+ */
+export async function getStakeSummary(actorId) {
+    const actor = await getPrisma().actorState.findUnique({
+        where: { actorId },
+    });
+    const stakes = await getPrisma().stake.findMany({
+        where: { actorId, status: 'ACTIVE' },
+    });
+    const tickets = await getPrisma().ticket.findMany({
+        where: { claimedBy: actorId, status: 'CLAIMED' },
+    });
+    return {
+        currentRep: actor?.currentRep ?? 0,
+        stakedRep: actor?.stakedRep ?? 0,
+        activeStakes: stakes.length,
+        activeTickets: tickets.length,
+    };
+}
+/**
+ * List available tickets
+ */
+export async function listOpenTickets(limit = 20) {
+    return getPrisma().ticket.findMany({
+        where: { status: 'OPEN' },
+        orderBy: { deadline: 'asc' },
+        take: limit,
+    });
+}
+/**
+ * Get ticket details
+ */
+export async function getTicket(ticketId) {
+    return getPrisma().ticket.findUnique({
+        where: { id: ticketId },
+        include: { stake: true },
+    });
+}
+export { prisma };
+//# sourceMappingURL=index.js.map

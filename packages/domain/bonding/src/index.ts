@@ -4,6 +4,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
 import {
   StakeInputSchema,
   UnstakeInputSchema,
@@ -29,7 +30,7 @@ function getPrisma() {
 // ============================================
 
 async function emitEvent(
-  tx: PrismaClient,
+  tx: any,
   actorId: string,
   type: string,
   payload: Record<string, unknown>
@@ -287,39 +288,42 @@ export async function processForfeitures(slashPercent: number = 0.5) {
     include: { stake: true },
   });
 
-  const results = [];
+  const results: Array<{ ticketId: string; slashed: number; returned: number }> = [];
 
   for (const ticket of overdueTickets) {
     if (!ticket.stake || !ticket.claimedBy) continue;
 
-    const slashAmount = ticket.stake.amount * slashPercent;
-    const returnAmount = ticket.stake.amount - slashAmount;
+    const claimedBy = ticket.claimedBy;
+    const stakeAmount = ticket.stake.amount;
+    const slashAmount = stakeAmount * slashPercent;
+    const returnAmount = stakeAmount - slashAmount;
+    const stakeId = ticket.stake.id;
 
     await getPrisma().$transaction(async (tx) => {
       // Update ticket status
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'FORFEITED' } });
 
       // Update stake to forfeited
-      await tx.stake.update({ where: { id: ticket.stake!.id }, data: { status: 'FORFEITED' } });
+      await tx.stake.update({ where: { id: stakeId }, data: { status: 'FORFEITED' } });
 
       // Handle REP: slash some, return remainder
       if (returnAmount > 0) {
         await tx.actorState.update({
-          where: { actorId: ticket.claimedBy },
-          data: { stakedRep: { decrement: ticket.stake!.amount }, currentRep: { increment: returnAmount } },
+          where: { actorId: claimedBy },
+          data: { stakedRep: { decrement: stakeAmount }, currentRep: { increment: returnAmount } },
         });
       } else {
         await tx.actorState.update({
-          where: { actorId: ticket.claimedBy },
-          data: { stakedRep: { decrement: ticket.stake!.amount } },
+          where: { actorId: claimedBy },
+          data: { stakedRep: { decrement: stakeAmount } },
         });
       }
 
       // Emit forfeiture event
-      await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+      await emitEvent(tx, claimedBy, 'FORFEITURE_EXECUTED', {
         ticketId: ticket.id,
         title: ticket.title,
-        originalStake: ticket.stake.amount,
+        originalStake: stakeAmount,
         slashed: slashAmount,
         returned: returnAmount,
       });
@@ -378,5 +382,5 @@ export async function listStakes(actorId: string, status?: string) {
 // EXPORTS
 // ============================================
 
-export { prisma };
+export { getPrisma };
 export type { Stake, Ticket, ActorState } from '@fated/core';

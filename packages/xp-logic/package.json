@@ -1,0 +1,17 @@
+{
+  "name": "@fated/xp-logic",
+  "version": "0.0.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fated/events": "workspace:*",
+    "@fated/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@fated/tsconfig": "workspace:*",
+    "vitest": "^1.0.0"
+  }
+}

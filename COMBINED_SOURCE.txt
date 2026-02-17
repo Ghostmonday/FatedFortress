@@ -1,0 +1,3415 @@
+/* ===========================================
+FATEDFORTRESS - COMPLETE SOURCE CODE
+Combined: Sat Feb 14 05:01:15 PM PST 2026
+=========================================== */
+
+
+// ===========================================
+// FILE: ./packages/core/src/index.ts
+// ===========================================
+
+import { z } from "zod";
+
+// ============================================
+// SPECIALTIES & ENUMS
+// ============================================
+
+export const SpecialtyEnum = z.enum(['BACKEND', 'FRONTEND', 'DEVOPS', 'SECURITY', 'RESEARCH']);
+export type Specialty = z.infer<typeof SpecialtyEnum>;
+
+export const TicketStatusEnum = z.enum(['OPEN', 'CLAIMED', 'COMPLETED', 'FORFEITED', 'CANCELLED']);
+export type TicketStatus = z.infer<typeof TicketStatusEnum>;
+
+export const StakeStatusEnum = z.enum(['ACTIVE', 'RELEASED', 'FORFEITED']);
+export type StakeStatus = z.infer<typeof StakeStatusEnum>;
+
+// ============================================
+// BASE SCHEMAS
+// ============================================
+
+export const BaseEventSchema = z.object({
+  id: z.string().uuid(),
+  streamId: z.string(),
+  timestamp: z.coerce.date(),
+  metadata: z.record(z.any()).optional(),
+});
+
+export type BaseEvent = z.infer<typeof BaseEventSchema>;
+
+// ============================================
+// CONTRIBUTION EVENTS
+// ============================================
+
+export const ContributionSubmittedSchema = BaseEventSchema.extend({
+  type: z.literal("CONTRIBUTION_SUBMITTED"),
+  payload: z.object({
+    userId: z.string(),
+    url: z.string().url(),
+    complexityScore: z.number().min(1).max(10).optional(),
+    specialty: SpecialtyEnum.optional(),
+  }),
+});
+
+export type ContributionSubmitted = z.infer<typeof ContributionSubmittedSchema>;
+
+export const VerificationSubmittedSchema = BaseEventSchema.extend({
+  type: z.literal("VERIFICATION_SUBMITTED"),
+  payload: z.object({
+    verifierId: z.string(),
+    targetContributionId: z.string(),
+    verdict: z.literal("APPROVE").or(z.literal("REJECT")),
+    qualityScore: z.number().min(1).max(5).optional(),
+    specialty: SpecialtyEnum.optional(),
+  }),
+});
+
+export type VerificationSubmitted = z.infer<typeof VerificationSubmittedSchema>;
+
+// ============================================
+// PROJECT EVENTS
+// ============================================
+
+export const ProjectCreatedSchema = BaseEventSchema.extend({
+  type: z.literal("PROJECT_CREATED"),
+  payload: z.object({
+    projectId: z.string(),
+    name: z.string(),
+    domain: SpecialtyEnum,
+  }),
+});
+
+export const SquadAssignedSchema = BaseEventSchema.extend({
+  type: z.literal("SQUAD_ASSIGNED"),
+  payload: z.object({
+    projectId: z.string(),
+    squadIds: z.array(z.string()),
+  }),
+});
+
+export const ProjectCompletedSchema = BaseEventSchema.extend({
+  type: z.literal("PROJECT_COMPLETED"),
+  payload: z.object({
+    projectId: z.string(),
+    evaluations: z.array(z.object({
+      userId: z.string(),
+      score: z.number().min(0).max(1),
+      feedback: z.string().optional(),
+    })),
+  }),
+});
+
+export type ProjectCreated = z.infer<typeof ProjectCreatedSchema>;
+export type SquadAssigned = z.infer<typeof SquadAssignedSchema>;
+export type ProjectCompleted = z.infer<typeof ProjectCompletedSchema>;
+
+// ============================================
+// BONDING EVENTS
+// ============================================
+
+export const StakePlacedSchema = BaseEventSchema.extend({
+  type: z.literal("STAKE_PLACED"),
+  payload: z.object({
+    stakeId: z.string(),
+    amount: z.number(),
+    totalStaked: z.number(),
+  }),
+});
+
+export const StakeReleasedSchema = BaseEventSchema.extend({
+  type: z.literal("STAKE_RELEASED"),
+  payload: z.object({
+    stakeId: z.string(),
+    amount: z.number(),
+  }),
+});
+
+export const TicketClaimedSchema = BaseEventSchema.extend({
+  type: z.literal("TICKET_CLAIMED"),
+  payload: z.object({
+    ticketId: z.string(),
+    stakeId: z.string(),
+    title: z.string(),
+    deadline: z.coerce.date(),
+  }),
+});
+
+export const TicketCompletedSchema = BaseEventSchema.extend({
+  type: z.literal("TICKET_COMPLETED"),
+  payload: z.object({
+    ticketId: z.string(),
+    title: z.string(),
+    bondReturned: z.number(),
+    verifiedBy: z.string(),
+  }),
+});
+
+export const ForfeitureExecutedSchema = BaseEventSchema.extend({
+  type: z.literal("FORFEITURE_EXECUTED"),
+  payload: z.object({
+    ticketId: z.string(),
+    title: z.string(),
+    originalStake: z.number(),
+    slashed: z.number(),
+    returned: z.number(),
+  }),
+});
+
+export type StakePlaced = z.infer<typeof StakePlacedSchema>;
+export type StakeReleased = z.infer<typeof StakeReleasedSchema>;
+export type TicketClaimed = z.infer<typeof TicketClaimedSchema>;
+export type TicketCompleted = z.infer<typeof TicketCompletedSchema>;
+export type ForfeitureExecuted = z.infer<typeof ForfeitureExecutedSchema>;
+
+// ============================================
+// ALL EVENTS UNION
+// ============================================
+
+export const AppEventSchema = z.discriminatedUnion("type", [
+  ContributionSubmittedSchema,
+  VerificationSubmittedSchema,
+  ProjectCreatedSchema,
+  SquadAssignedSchema,
+  ProjectCompletedSchema,
+  StakePlacedSchema,
+  StakeReleasedSchema,
+  TicketClaimedSchema,
+  TicketCompletedSchema,
+  ForfeitureExecutedSchema,
+]);
+
+export type AppEvent = z.infer<typeof AppEventSchema>;
+
+// ============================================
+// INPUT SCHEMAS
+// ============================================
+
+export const StakeInputSchema = z.object({
+  actorId: z.string().uuid(),
+  amount: z.number().positive(),
+});
+
+export const UnstakeInputSchema = z.object({
+  actorId: z.string().uuid(),
+  stakeId: z.string().uuid(),
+});
+
+export const CreateTicketInputSchema = z.object({
+  workPackageId: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  bondRequired: z.number().positive(),
+  deadline: z.coerce.date(),
+});
+
+export const ClaimTicketInputSchema = z.object({
+  actorId: z.string().uuid(),
+  ticketId: z.string().uuid(),
+});
+
+export const CompleteTicketInputSchema = z.object({
+  ticketId: z.string().uuid(),
+  verifierId: z.string().uuid(),
+});
+
+export type StakeInput = z.infer<typeof StakeInputSchema>;
+export type UnstakeInput = z.infer<typeof UnstakeInputSchema>;
+export type CreateTicketInput = z.infer<typeof CreateTicketInputSchema>;
+export type ClaimTicketInput = z.infer<typeof ClaimTicketInputSchema>;
+export type CompleteTicketInput = z.infer<typeof CompleteTicketInputSchema>;
+
+// ============================================
+// DOMAIN TYPES
+// ============================================
+
+export interface ActorState {
+  actorId: string;
+  currentRep: number;    // Liquid REP
+  stakedRep: number;     // Locked REP
+  currentXp: number;
+  pendingXp: number;
+  contributions: number;
+  decayRate: number;
+  lastActivity: Date | null;
+  lastUpdated: Date;
+  roleHistory: string[];
+  successRate: Record<string, number>;
+}
+
+export interface Stake {
+  id: string;
+  actorId: string;
+  amount: number;
+  ticketId: string | null;
+  createdAt: Date;
+  releasedAt: Date | null;
+  status: StakeStatus;
+}
+
+export interface Ticket {
+  id: string;
+  workPackageId: string;
+  title: string;
+  description: string | null;
+  bondRequired: number;
+  claimedBy: string | null;
+  claimedAt: Date | null;
+  deadline: Date;
+  completedAt: Date | null;
+  status: TicketStatus;
+}
+
+
+// ===========================================
+// FILE: ./packages/types/src/index.ts
+// ===========================================
+
+// Branded types to prevent mixing up IDs
+export type Brand<K, T> = K & { __brand: T };
+
+export type UserId = Brand<string, "UserId">;
+export type ProjectId = Brand<string, "ProjectId">;
+export type ContributionId = Brand<string, "ContributionId">;
+
+// Factories to avoid ugly casting everywhere
+export const toUserId = (id: string) => id as UserId;
+export const toProjectId = (id: string) => id as ProjectId;
+export const toContributionId = (id: string) => id as ContributionId;
+
+export enum Visibility {
+  OFF = "OFF",
+  ANON = "ANON"
+}
+
+// Specialty domains for domain-aware specialization
+export type Specialty = 'BACKEND' | 'FRONTEND' | 'DEVOPS' | 'SECURITY' | 'RESEARCH';
+
+
+// ===========================================
+// FILE: ./packages/events/src/index.ts
+// ===========================================
+
+import { z } from "zod";
+
+// Base Event
+export const BaseEventSchema = z.object({
+  id: z.string().uuid(),
+  streamId: z.string(),
+  timestamp: z.coerce.date(),
+  metadata: z.record(z.any()).optional(),
+});
+
+// Specialty enum for domain-aware specialization
+const SpecialtyEnum = z.enum(['BACKEND', 'FRONTEND', 'DEVOPS', 'SECURITY', 'RESEARCH']);
+
+// 1. Contribution (The Work)
+export const ContributionSubmittedSchema = BaseEventSchema.extend({
+  type: z.literal("CONTRIBUTION_SUBMITTED"),
+  payload: z.object({
+    userId: z.string(),
+    url: z.string().url(),
+    complexityScore: z.number().min(1).max(10).optional(),
+    specialty: SpecialtyEnum.optional(),
+  }),
+});
+
+// 2. Verification (The Judgment)
+export const VerificationSubmittedSchema = BaseEventSchema.extend({
+  type: z.literal("VERIFICATION_SUBMITTED"),
+  payload: z.object({
+    verifierId: z.string(),
+    targetContributionId: z.string(),
+    verdict: z.literal("APPROVE").or(z.literal("REJECT")),
+    qualityScore: z.number().min(1).max(5).optional(),
+    specialty: SpecialtyEnum.optional(),
+  }),
+});
+
+export type ContributionSubmitted = z.infer<typeof ContributionSubmittedSchema>;
+export type VerificationSubmitted = z.infer<typeof VerificationSubmittedSchema>;
+
+// 3. Project Lifecycle Events
+export const ProjectCreatedSchema = BaseEventSchema.extend({
+  type: z.literal("PROJECT_CREATED"),
+  payload: z.object({
+    projectId: z.string(),
+    name: z.string(),
+    domain: SpecialtyEnum,
+  }),
+});
+
+export const SquadAssignedSchema = BaseEventSchema.extend({
+  type: z.literal("SQUAD_ASSIGNED"),
+  payload: z.object({
+    projectId: z.string(),
+    squadIds: z.array(z.string()),
+  }),
+});
+
+export const ProjectCompletedSchema = BaseEventSchema.extend({
+  type: z.literal("PROJECT_COMPLETED"),
+  payload: z.object({
+    projectId: z.string(),
+    evaluations: z.array(z.object({
+      userId: z.string(),
+      score: z.number().min(0).max(1),
+      feedback: z.string().optional(),
+    })),
+  }),
+});
+
+export type ProjectCreated = z.infer<typeof ProjectCreatedSchema>;
+export type SquadAssigned = z.infer<typeof SquadAssignedSchema>;
+export type ProjectCompleted = z.infer<typeof ProjectCompletedSchema>;
+
+// The Union - All Event Types
+export const AppEventSchema = z.discriminatedUnion("type", [
+  ContributionSubmittedSchema,
+  VerificationSubmittedSchema,
+  ProjectCreatedSchema,
+  SquadAssignedSchema,
+  ProjectCompletedSchema,
+]);
+
+export type AppEvent = z.infer<typeof AppEventSchema>;
+
+
+// ===========================================
+// FILE: ./packages/domain/xp/src/index.ts
+// ===========================================
+
+/**
+ * @fated/domain-xp
+ * XP Calculation and Decay Logic
+ */
+
+import { z } from 'zod';
+import type { Specialty, ContributionSubmitted, VerificationSubmitted } from '@fated/core';
+
+// ============================================
+// CONFIGURATION
+// ============================================
+
+const XP_CONFIG = {
+  BASE_CONTRIBUTION_XP: 100,
+  VERIFICATION_XP: 25,
+  COMPLEXITY_MULTIPLIER: {
+    1: 0.5,
+    2: 0.75,
+    3: 1.0,
+    4: 1.25,
+    5: 1.5,
+    6: 1.75,
+    7: 2.0,
+    8: 2.5,
+    9: 3.0,
+    10: 4.0,
+  },
+  SPECIALTY_BONUS: {
+    BACKEND: 1.2,
+    FRONTEND: 1.2,
+    DEVOPS: 1.3,
+    SECURITY: 1.5,
+    RESEARCH: 1.4,
+  },
+  DECAY_HALF_LIFE_DAYS: 30,
+  DECAY_RATE: 0.02, // 2% per day
+};
+
+// ============================================
+// XP CALCULATIONS
+// ============================================
+
+/**
+ * Calculate XP earned from a contribution
+ */
+export function calculateContributionXP(
+  contribution: ContributionSubmitted['payload'],
+  verdict: 'APPROVE' | 'REJECT' = 'APPROVE'
+): number {
+  if (verdict === 'REJECT') return 0;
+
+  const complexityMult = XP_CONFIG.COMPLEXITY_MULTIPLIER[contribution.complexityScore ?? 3];
+  const specialtyBonus = XP_CONFIG.SPECIALTY_BONUS[contribution.specialty ?? 'BACKEND'];
+
+  const baseXP = XP_CONFIG.BASE_CONTRIBUTION_XP;
+  return Math.floor(baseXP * complexityMult * specialtyBonus);
+}
+
+/**
+ * Calculate XP earned from verification
+ */
+export function calculateVerificationXP(
+  verification: VerificationSubmitted['payload']
+): number {
+  const baseXP = XP_CONFIG.VERIFICATION_XP;
+  const specialtyBonus = XP_CONFIG.SPECIALTY_BONUS[verification.specialty ?? 'BACKEND'];
+  
+  // Quality score adds up to 50% bonus
+  const qualityBonus = 1 + ((verification.qualityScore ?? 3) / 10);
+  
+  return Math.floor(baseXP * qualityBonus * specialtyBonus);
+}
+
+/**
+ * Apply decay to XP based on time since last activity
+ */
+export function applyDecay(currentXP: number, daysSinceLastActivity: number): number {
+  if (daysSinceLastActivity <= 0) return currentXP;
+  
+  // Exponential decay: XP * (1 - rate)^days
+  const decayedXP = currentXP * Math.pow(1 - XP_CONFIG.DECAY_RATE, daysSinceLastActivity);
+  return Math.floor(decayedXP);
+}
+
+/**
+ * Calculate decay rate for an actor
+ */
+export function calculateDecayRate(totalXP: number): number {
+  // Higher XP = faster decay (proportional)
+  return XP_CONFIG.DECAY_RATE * (1 + totalXP / 1000);
+}
+
+// ============================================
+// INPUT VALIDATION
+// ============================================
+
+export const CalculateXPInputSchema = z.object({
+  complexityScore: z.number().min(1).max(10).optional(),
+  specialty: z.enum(['BACKEND', 'FRONTEND', 'DEVOPS', 'SECURITY', 'RESEARCH']).optional(),
+  qualityScore: z.number().min(1).max(5).optional(),
+  verdict: z.enum(['APPROVE', 'REJECT']).optional(),
+});
+
+export type CalculateXPInput = z.infer<typeof CalculateXPInputSchema>;
+
+// ============================================
+// MAIN CALCULATOR
+// ============================================
+
+export interface XPCalculationResult {
+  xp: number;
+  breakdown: {
+    baseXP: number;
+    complexityMultiplier: number;
+    specialtyBonus: number;
+    qualityBonus?: number;
+  };
+}
+
+/**
+ * Calculate XP from contribution or verification
+ */
+export function calculateXP(input: CalculateXPInput): XPCalculationResult {
+  const { complexityScore, specialty, qualityScore, verdict } = CalculateXPInputSchema.parse(input);
+
+  if (verdict === 'REJECT') {
+    return { xp: 0, breakdown: { baseXP: 0, complexityMultiplier: 1, specialtyBonus: 1 } };
+  }
+
+  const complexityMult = XP_CONFIG.COMPLEXITY_MULTIPLIER[complexityScore ?? 3];
+  const specialtyBonus = XP_CONFIG.SPECIALTY_BONUS[specialty ?? 'BACKEND'];
+  
+  const baseXP = XP_CONFIG.BASE_CONTRIBUTION_XP;
+  const qualityBonus = qualityScore ? 1 + (qualityScore / 10) : 1;
+
+  const totalXP = Math.floor(baseXP * complexityMult * specialtyBonus * qualityBonus);
+
+  return {
+    xp: totalXP,
+    breakdown: {
+      baseXP,
+      complexityMultiplier: complexityMult,
+      specialtyBonus,
+      qualityBonus: qualityScore ? qualityBonus : undefined,
+    },
+  };
+}
+
+/**
+ * Get configuration (useful for testing)
+ */
+export function getXPConfig() {
+  return { ...XP_CONFIG };
+}
+
+export type { Specialty };
+
+
+// ===========================================
+// FILE: ./packages/domain/matching/src/index.ts
+// ===========================================
+
+/**
+ * @fated/domain-matching
+ * Team Formation and Matching Logic
+ */
+
+import { z } from 'zod';
+import type { Specialty } from '@fated/core';
+
+// ============================================
+// CONFIGURATION
+// ============================================
+
+const MATCHING_CONFIG = {
+  IDEAL_TEAM_SIZE: 4,
+  MIN_TEAM_SIZE: 2,
+  MAX_TEAM_SIZE: 6,
+  SPECIALTY_WEIGHTS: {
+    BACKEND: 1.0,
+    FRONTEND: 1.0,
+    DEVOPS: 1.5,
+    SECURITY: 2.0,
+    RESEARCH: 1.5,
+  },
+  ROLE_SCORES: {
+    LEADER: 1.5,
+    CONTRIBUTOR: 1.0,
+    REVIEWER: 1.2,
+  },
+};
+
+// ============================================
+// TYPES
+// ============================================
+
+export interface Member {
+  userId: string;
+  specialty: Specialty;
+  xp: number;
+  successRate: number;
+  role?: 'LEADER' | 'CONTRIBUTOR' | 'REVIEWER';
+}
+
+export interface Team {
+  id: string;
+  members: Member[];
+  totalPower: number;
+  specialtyCoverage: Record<Specialty, number>;
+}
+
+// ============================================
+// SCORING
+// ============================================
+
+/**
+ * Calculate individual member's power score
+ */
+export function calculateMemberPower(member: Member): number {
+  const specialtyWeight = MATCHING_CONFIG.SPECIALTY_WEIGHTS[member.specialty];
+  const roleScore = MATCHING_CONFIG.ROLE_SCORES[member.role ?? 'CONTRIBUTOR'];
+  
+  return member.xp * member.successRate * specialtyWeight * roleScore;
+}
+
+/**
+ * Calculate team's total power
+ */
+export function calculateTeamPower(members: Member[]): number {
+  return members.reduce((sum, m) => sum + calculateMemberPower(m), 0);
+}
+
+/**
+ * Calculate specialty coverage score
+ */
+export function calculateSpecialtyCoverage(members: Member[]): Record<Specialty, number> {
+  const coverage: Record<Specialty, number> = {
+    BACKEND: 0,
+    FRONTEND: 0,
+    DEVOPS: 0,
+    SECURITY: 0,
+    RESEARCH: 0,
+  };
+  
+  for (const member of members) {
+    coverage[member.specialty]++;
+  }
+  
+  return coverage;
+}
+
+// ============================================
+// TEAM FORMATION
+// ============================================
+
+/**
+ * Check if a team is balanced (has required specialties)
+ */
+export function isTeamBalanced(members: Member[], requiredSpecialties: Specialty[] = []): boolean {
+  const coverage = calculateSpecialtyCoverage(members);
+  
+  // Must have at least one of each required specialty
+  for (const specialty of requiredSpecialties) {
+    if (coverage[specialty] < 1) return false;
+  }
+  
+  // Team size should be appropriate
+  if (members.length < MATCHING_CONFIG.MIN_TEAM_SIZE) return false;
+  if (members.length > MATCHING_CONFIG.MAX_TEAM_SIZE) return false;
+  
+  return true;
+}
+
+/**
+ * Form optimal teams from a pool of members
+ */
+export function formTeams(members: Member[], targetTeamSize: number = MATCHING_CONFIG.IDEAL_TEAM_SIZE): Team[] {
+  if (members.length === 0) return [];
+  
+  // Sort by power (descending) for greedy team formation
+  const sorted = [...members].sort((a, b) => calculateMemberPower(b) - calculateMemberPower(a));
+  
+  const teams: Team[] = [];
+  
+  while (sorted.length >= MATCHING_CONFIG.MIN_TEAM_SIZE) {
+    const teamMembers: Member[] = [];
+    
+    // Take up to targetTeamSize members
+    const takeCount = Math.min(targetTeamSize, sorted.length);
+    
+    for (let i = 0; i < takeCount && sorted.length > 0; i++) {
+      teamMembers.push(sorted.shift()!);
+    }
+    
+    teams.push({
+      id: crypto.randomUUID(),
+      members: teamMembers,
+      totalPower: calculateTeamPower(teamMembers),
+      specialtyCoverage: calculateSpecialtyCoverage(teamMembers),
+    });
+  }
+  
+  // Leftovers form a smaller team if possible
+  if (sorted.length >= MATCHING_CONFIG.MIN_TEAM_SIZE) {
+    teams.push({
+      id: crypto.randomUUID(),
+      members: sorted.splice(0),
+      totalPower: calculateTeamPower(sorted),
+      specialtyCoverage: calculateSpecialtyCoverage(sorted),
+    });
+  }
+  
+  return teams;
+}
+
+/**
+ * Find best member to assign as team leader
+ */
+export function findLeader(members: Member[]): Member | null {
+  if (members.length === 0) return null;
+  
+  // Leader should have highest power and good success rate
+  return members.reduce((best, current) => {
+    const bestPower = calculateMemberPower(best);
+    const currentPower = calculateMemberPower(current);
+    
+    // Prefer higher success rate when powers are similar
+    if (currentPower > bestPower || 
+        (currentPower === bestPower && current.successRate > best.successRate)) {
+      return current;
+    }
+    return best;
+  });
+}
+
+/**
+ * Assign roles to team members optimally
+ */
+export function assignRoles(members: Member[]): Member[] {
+  if (members.length === 0) return [];
+  
+  const withRoles = [...members];
+  
+  // First member is leader
+  withRoles[0].role = 'LEADER';
+  
+  // Rest are contributors or reviewers based on success rate
+  for (let i = 1; i < withRoles.length; i++) {
+    withRoles[i].role = withRoles[i].successRate > 0.8 ? 'REVIEWER' : 'CONTRIBUTOR';
+  }
+  
+  return withRoles;
+}
+
+// ============================================
+// INPUT VALIDATION
+// ============================================
+
+export const MemberInputSchema = z.object({
+  userId: z.string(),
+  specialty: z.enum(['BACKEND', 'FRONTEND', 'DEVOPS', 'SECURITY', 'RESEARCH']),
+  xp: z.number().min(0),
+  successRate: z.number().min(0).max(1),
+  role: z.enum(['LEADER', 'CONTRIBUTOR', 'REVIEWER']).optional(),
+});
+
+export type MemberInput = z.infer<typeof MemberInputSchema>;
+
+// ============================================
+// MAIN EXPORTS
+// ============================================
+
+/**
+ * Form a party (team) from member pool
+ */
+export function formParty(members: MemberInput[]): Team {
+  const parsed = members.map(m => MemberInputSchema.parse(m));
+  const withRoles = assignRoles(parsed);
+  
+  return {
+    id: crypto.randomUUID(),
+    members: withRoles,
+    totalPower: calculateTeamPower(withRoles),
+    specialtyCoverage: calculateSpecialtyCoverage(withRoles),
+  };
+}
+
+/**
+ * Get configuration (useful for testing)
+ */
+export function getMatchingConfig() {
+  return { ...MATCHING_CONFIG };
+}
+
+export type { Specialty };
+
+
+// ===========================================
+// FILE: ./packages/domain/bonding/src/index.ts
+// ===========================================
+
+/**
+ * @fated/domain-bonding
+ * REP Staking, Tickets, and Forfeiture Logic
+ */
+
+import { PrismaClient } from '@prisma/client';
+import {
+  StakeInputSchema,
+  UnstakeInputSchema,
+  CreateTicketInputSchema,
+  ClaimTicketInputSchema,
+  CompleteTicketInputSchema,
+  type Stake,
+  type Ticket,
+  type ActorState,
+} from '@fated/core';
+
+// Lazy initialization - only create PrismaClient when needed
+let _prisma: PrismaClient | undefined;
+function getPrisma() {
+  if (!_prisma) {
+    _prisma = new PrismaClient();
+  }
+  return _prisma;
+}
+
+// ============================================
+// PRIVATE HELPERS
+// ============================================
+
+async function emitEvent(
+  tx: PrismaClient,
+  actorId: string,
+  type: string,
+  payload: Record<string, unknown>
+) {
+  return tx.event.create({
+    data: {
+      id: crypto.randomUUID(),
+      actorId,
+      streamId: `bonding-${Date.now()}`,
+      timestamp: new Date(),
+      type,
+      payload: JSON.stringify(payload),
+    },
+  });
+}
+
+// ============================================
+// STAKE OPERATIONS
+// ============================================
+
+/**
+ * Place a stake - locks REP from user's liquid balance
+ */
+export async function stakeRep(input: z.infer<typeof StakeInputSchema>) {
+  const { actorId, amount } = StakeInputSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    // Ensure actor exists
+    let actor = await tx.actorState.findUnique({ where: { actorId } });
+    if (!actor) {
+      actor = await tx.actorState.create({
+        data: { actorId, currentRep: 0, stakedRep: 0 },
+      });
+    }
+
+    if (actor.currentRep < amount) {
+      throw new Error(`Insufficient REP: have ${actor.currentRep}, need ${amount}`);
+    }
+
+    // Move REP from liquid to staked
+    await tx.actorState.update({
+      where: { actorId },
+      data: {
+        currentRep: { decrement: amount },
+        stakedRep: { increment: amount },
+      },
+    });
+
+    // Create stake record
+    const stake = await tx.stake.create({
+      data: { actorId, amount, status: 'ACTIVE' },
+    });
+
+    // Emit event
+    await emitEvent(tx, actorId, 'STAKE_PLACED', {
+      stakeId: stake.id,
+      amount,
+      totalStaked: actor.stakedRep + amount,
+    });
+
+    return stake;
+  });
+}
+
+/**
+ * Release a stake - returns REP to liquid balance
+ * Only allows releasing stakes not tied to active tickets
+ */
+export async function releaseStake(input: z.infer<typeof UnstakeInputSchema>) {
+  const { actorId, stakeId } = UnstakeInputSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const stake = await tx.stake.findFirst({
+      where: { id: stakeId, actorId, status: 'ACTIVE' },
+    });
+
+    if (!stake) {
+      throw new Error('Stake not found or already released');
+    }
+
+    // Check if stake is linked to an active ticket
+    if (stake.ticketId) {
+      const ticket = await tx.ticket.findUnique({ where: { id: stake.ticketId } });
+      if (ticket?.status === 'CLAIMED') {
+        throw new Error('Cannot release stake tied to active ticket');
+      }
+    }
+
+    // Return REP to liquid balance
+    await tx.actorState.update({
+      where: { actorId },
+      data: {
+        currentRep: { increment: stake.amount },
+        stakedRep: { decrement: stake.amount },
+      },
+    });
+
+    // Update stake status
+    await tx.stake.update({
+      where: { id: stakeId },
+      data: { status: 'RELEASED', releasedAt: new Date() },
+    });
+
+    // Emit event
+    await emitEvent(tx, actorId, 'STAKE_RELEASED', {
+      stakeId: stake.id,
+      amount: stake.amount,
+    });
+
+    return { success: true, stakeId };
+  });
+}
+
+// ============================================
+// TICKET OPERATIONS
+// ============================================
+
+/**
+ * Create a new ticket (work package)
+ */
+export async function createTicket(input: z.infer<typeof CreateTicketInputSchema>) {
+  const data = CreateTicketInputSchema.parse(input);
+
+  return getPrisma().ticket.create({
+    data: {
+      workPackageId: data.workPackageId,
+      title: data.title,
+      description: data.description,
+      bondRequired: data.bondRequired,
+      deadline: data.deadline,
+      status: 'OPEN',
+    },
+  });
+}
+
+/**
+ * Claim a ticket - auto-stakes from current REP if needed
+ */
+export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>) {
+  const { actorId, ticketId } = ClaimTicketInputSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const ticket = await tx.ticket.findUnique({ where: { id: ticketId } });
+
+    if (!ticket) throw new Error('Ticket not found');
+    if (ticket.status !== 'OPEN') throw new Error(`Ticket is ${ticket.status}, not available`);
+
+    const actor = await tx.actorState.findUniqueOrThrow({ where: { actorId } });
+
+    // Auto-stake if insufficient staked REP but has current REP
+    let stakeAmount = ticket.bondRequired;
+    let autoStaked = false;
+    
+    if (actor.stakedRep < ticket.bondRequired) {
+      const needed = ticket.bondRequired - actor.stakedRep;
+      if (actor.currentRep >= needed) {
+        // Auto-stake from current REP
+        await tx.actorState.update({
+          where: { actorId },
+          data: {
+            currentRep: { decrement: needed },
+            stakedRep: { increment: needed },
+          },
+        });
+        stakeAmount = ticket.bondRequired; // Now we have enough
+        autoStaked = true;
+      } else {
+        throw new Error(`Insufficient REP: have ${actor.currentRep} liquid + ${actor.stakedRep} staked, need ${ticket.bondRequired}`);
+      }
+    }
+
+    // Create stake for this ticket
+    const stake = await tx.stake.create({
+      data: { actorId, amount: stakeAmount, ticketId, status: 'ACTIVE' },
+    });
+
+    // Update ticket status
+    const updatedTicket = await tx.ticket.update({
+      where: { id: ticketId },
+      data: { claimedBy: actorId, claimedAt: new Date(), status: 'CLAIMED' },
+    });
+
+    // Emit event
+    await emitEvent(tx, actorId, 'TICKET_CLAIMED', {
+      ticketId: ticket.id,
+      stakeId: stake.id,
+      title: ticket.title,
+      deadline: ticket.deadline,
+      autoStaked,
+    });
+
+    return { ticket: updatedTicket, stake, autoStaked };
+  });
+}
+
+/**
+ * Complete a ticket - returns stake + awards REP
+ */
+export async function completeTicket(input: z.infer<typeof CompleteTicketInputSchema>) {
+  const { ticketId, verifierId } = CompleteTicketInputSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const ticket = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      include: { stake: true },
+    });
+
+    if (!ticket) throw new Error('Ticket not found');
+    if (ticket.status !== 'CLAIMED') throw new Error(`Ticket is ${ticket.status}, cannot complete`);
+    if (!ticket.claimedBy || !ticket.stake) throw new Error('Ticket has no claimant or stake');
+
+    // Return staked REP to liquid
+    await tx.actorState.update({
+      where: { actorId: ticket.claimedBy },
+      data: {
+        currentRep: { increment: ticket.stake.amount },
+        stakedRep: { decrement: ticket.stake.amount },
+      },
+    });
+
+    // Update stake to released
+    await tx.stake.update({
+      where: { id: ticket.stake.id },
+      data: { status: 'RELEASED', releasedAt: new Date() },
+    });
+
+    // Update ticket status
+    const updatedTicket = await tx.ticket.update({
+      where: { id: ticketId },
+      data: { status: 'COMPLETED', completedAt: new Date() },
+    });
+
+    // Emit completion event
+    await emitEvent(tx, ticket.claimedBy, 'TICKET_COMPLETED', {
+      ticketId: ticket.id,
+      title: ticket.title,
+      bondReturned: ticket.stake.amount,
+      verifiedBy: verifierId,
+    });
+
+    return { ticket: updatedTicket, returnedAmount: ticket.stake.amount };
+  });
+}
+
+// ============================================
+// FORFEITURE LOGIC
+// ============================================
+
+/**
+ * Process overdue tickets - slash staked REP
+ */
+export async function processForfeitures(slashPercent: number = 0.5) {
+  const overdueTickets = await getPrisma().ticket.findMany({
+    where: { status: 'CLAIMED', deadline: { lt: new Date() } },
+    include: { stake: true },
+  });
+
+  const results = [];
+
+  for (const ticket of overdueTickets) {
+    if (!ticket.stake || !ticket.claimedBy) continue;
+
+    const slashAmount = ticket.stake.amount * slashPercent;
+    const returnAmount = ticket.stake.amount - slashAmount;
+
+    await getPrisma().$transaction(async (tx) => {
+      // Update ticket status
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'FORFEITED' } });
+
+      // Update stake to forfeited
+      await tx.stake.update({ where: { id: ticket.stake!.id }, data: { status: 'FORFEITED' } });
+
+      // Handle REP: slash some, return remainder
+      if (returnAmount > 0) {
+        await tx.actorState.update({
+          where: { actorId: ticket.claimedBy },
+          data: { stakedRep: { decrement: ticket.stake!.amount }, currentRep: { increment: returnAmount } },
+        });
+      } else {
+        await tx.actorState.update({
+          where: { actorId: ticket.claimedBy },
+          data: { stakedRep: { decrement: ticket.stake!.amount } },
+        });
+      }
+
+      // Emit forfeiture event
+      await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+        ticketId: ticket.id,
+        title: ticket.title,
+        originalStake: ticket.stake.amount,
+        slashed: slashAmount,
+        returned: returnAmount,
+      });
+
+      results.push({ ticketId: ticket.id, slashed: slashAmount, returned: returnAmount });
+    });
+  }
+
+  return results;
+}
+
+// ============================================
+// QUERY OPERATIONS
+// ============================================
+
+export async function getStakeSummary(actorId: string) {
+  const actor = await getPrisma().actorState.findUnique({ where: { actorId } });
+  const stakes = await getPrisma().stake.findMany({ where: { actorId, status: 'ACTIVE' } });
+  const tickets = await getPrisma().ticket.findMany({ where: { claimedBy: actorId, status: 'CLAIMED' } });
+
+  return {
+    currentRep: actor?.currentRep ?? 0,
+    stakedRep: actor?.stakedRep ?? 0,
+    activeStakes: stakes.length,
+    activeTickets: tickets.length,
+  };
+}
+
+export async function listOpenTickets(limit: number = 20) {
+  return getPrisma().ticket.findMany({
+    where: { status: 'OPEN' },
+    orderBy: { deadline: 'asc' },
+    take: limit,
+  });
+}
+
+export async function getTicket(ticketId: string) {
+  return getPrisma().ticket.findUnique({
+    where: { id: ticketId },
+    include: { stake: true },
+  });
+}
+
+export async function getActorState(actorId: string) {
+  return getPrisma().actorState.findUnique({ where: { actorId } });
+}
+
+export async function listStakes(actorId: string, status?: string) {
+  return getPrisma().stake.findMany({
+    where: { actorId, ...(status ? { status } : {}) },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+// ============================================
+// EXPORTS
+// ============================================
+
+export { prisma };
+export type { Stake, Ticket, ActorState } from '@fated/core';
+
+
+// ===========================================
+// FILE: ./packages/infrastructure/webhooks/src/index.ts
+// ===========================================
+
+/**
+ * @fated/infra-webhooks
+ * Webhook Verification and Payload Parsing
+ */
+
+import { createHmac } from 'crypto';
+import { z } from 'zod';
+
+// ============================================
+// GITHUB WEBHOOKS
+// ============================================
+
+export const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'dev-secret';
+
+/**
+ * Verify GitHub webhook HMAC-SHA256 signature
+ */
+export function verifyGitHubSignature(
+  payload: string,
+  signature: string,
+  secret: string = GITHUB_WEBHOOK_SECRET
+): boolean {
+  // In dev mode, skip verification
+  if (secret === 'dev-secret' || !signature) return true;
+  
+  const hmac = createHmac('sha256', secret);
+  const digest = 'sha256=' + hmac.update(payload).digest('hex');
+  
+  return signature === digest;
+}
+
+/**
+ * Parse GitHub PR webhook payload
+ */
+export const GitHubPRPayloadSchema = z.object({
+  action: z.string(),
+  pull_request: z.object({
+    id: z.number(),
+    number: z.number(),
+    title: z.string(),
+    body: z.string().nullable(),
+    html_url: z.string(),
+    user: z.object({ login: z.string() }),
+    merged: z.boolean().nullable(),
+    merged_at: z.string().nullable(),
+    state: z.string(),
+  }),
+  repository: z.object({
+    id: z.number(),
+    name: z.string(),
+    full_name: z.string(),
+  }),
+});
+
+export type GitHubPRPayload = z.infer<typeof GitHubPRPayloadSchema>;
+
+/**
+ * Extract ticket ID from PR body
+ * Looks for patterns like: "ticket-uuid", "closes ticket-uuid", "Fixes ticket-uuid"
+ */
+export function extractTicketId(prBody: string | null): string | null {
+  if (!prBody) return null;
+  
+  const patterns = [
+    /ticket-([a-f0-9\-]{36})/i,
+    /closes\s+ticket-([a-f0-9\-]{36})/i,
+    /fixes\s+ticket-([a-f0-9\-]{36})/i,
+    /resolves\s+ticket-([a-f0-9\-]{36})/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = prBody.match(pattern);
+    if (match) return match[1];
+  }
+  
+  return null;
+}
+
+/**
+ * Map GitHub PR action to system action
+ */
+export function mapPRActionToSystemEvent(action: string, pr: GitHubPRPayload['pull_request']) {
+  switch (action) {
+    case 'opened':
+      return 'CONTRIBUTION_SUBMITTED';
+    case 'reopened':
+      return 'CONTRIBUTION_REOPENED';
+    case 'closed':
+      if (pr.merged) return 'CONTRIBUTION_MERGED';
+      return 'CONTRIBUTION_CLOSED';
+    case 'synchronize':
+      return 'CONTRIBUTION_UPDATED';
+    default:
+      return null;
+  }
+}
+
+// ============================================
+// GITLAB WEBHOOKS (Future)
+// ============================================
+
+export const GitLabWebhookPayloadSchema = z.object({
+  object_kind: z.string(),
+  object_attributes: z.object({
+    id: z.number(),
+    title: z.string(),
+    description: z.string().nullable(),
+    state: z.string(),
+    merge_status: z.string(),
+    source: z.object({ path_with_namespace: z.string() }),
+    author: z.object({ username: z.string() }),
+  }),
+  project: z.object({
+    id: z.number(),
+    name: z.string(),
+    path_with_namespace: z.string(),
+  }),
+});
+
+export type GitLabWebhookPayload = z.infer<typeof GitLabWebhookPayloadSchema>;
+
+// ============================================
+// GENERIC WEBHOOK
+// ============================================
+
+export interface WebhookEvent {
+  source: 'github' | 'gitlab' | 'bitbucket';
+  action: string;
+  userId: string;
+  timestamp: Date;
+  payload: Record<string, unknown>;
+}
+
+export function createWebhookEvent(
+  source: WebhookEvent['source'],
+  action: string,
+  userId: string,
+  payload: Record<string, unknown>
+): WebhookEvent {
+  return {
+    source,
+    action,
+    userId,
+    timestamp: new Date(),
+    payload,
+  };
+}
+
+
+// ===========================================
+// FILE: ./packages/infrastructure/event-store/src/index.ts
+// ===========================================
+
+/**
+ * @fated/infra-event-store
+ * In-Memory Event Store with Materialized State
+ */
+
+import { PrismaClient } from '@prisma/client';
+import { AppEventSchema, type AppEvent, type Specialty } from '@fated/core';
+import { calculateXP, applyDecay } from '@fated/domain-xp';
+
+const prisma = new PrismaClient();
+
+// ============================================
+// STATE MANAGEMENT
+// ============================================
+
+interface UserState {
+  userId: string;
+  totalXP: number;
+  pendingXP: number;
+  contributions: number;
+  lastActivity: Date | null;
+  successRate: Record<Specialty, number>;
+  specialtyXP: Record<Specialty, number>;
+}
+
+const state = new Map<string, UserState>();
+
+// ============================================
+// STATE OPERATIONS
+// ============================================
+
+function getOrCreateUser(userId: string): UserState {
+  if (!state.has(userId)) {
+    state.set(userId, {
+      userId,
+      totalXP: 0,
+      pendingXP: 0,
+      contributions: 0,
+      lastActivity: null,
+      successRate: {} as Record<Specialty, number>,
+      specialtyXP: {} as Record<Specialty, number>,
+    });
+  }
+  return state.get(userId)!;
+}
+
+function applyContribution(event: AppEvent) {
+  if (event.type !== 'CONTRIBUTION_SUBMITTED') return;
+  
+  const user = getOrCreateUser(event.payload.userId);
+  const xp = calculateXP({
+    complexityScore: event.payload.complexityScore,
+    specialty: event.payload.specialty,
+    verdict: 'APPROVE',
+  });
+  
+  user.pendingXP += xp.xp;
+  user.contributions++;
+  user.lastActivity = event.timestamp;
+  
+  const specialty = event.payload.specialty ?? 'BACKEND';
+  user.specialtyXP[specialty] = (user.specialtyXP[specialty] ?? 0) + xp.xp;
+}
+
+function applyVerification(event: AppEvent) {
+  if (event.type !== 'VERIFICATION_SUBMITTED') return;
+  
+  const user = getOrCreateUser(event.payload.verifierId);
+  const xp = calculateXP({
+    specialty: event.payload.specialty,
+    qualityScore: event.payload.qualityScore,
+  });
+  
+  user.totalXP += xp.xp;
+  user.lastActivity = event.timestamp;
+  
+  // Update success rate for specialty
+  const specialty = event.payload.specialty ?? 'BACKEND';
+  const current = user.successRate[specialty] ?? 0;
+  const total = user.specialtyXP[specialty] ?? 0;
+  
+  if (event.payload.verdict === 'APPROVE') {
+    user.successRate[specialty] = (current * total + 1) / (total + 1);
+  } else {
+    user.successRate[specialty] = (current * total) / (total + 1);
+  }
+}
+
+// ============================================
+// MAIN EVENT STORE
+// ============================================
+
+export class InMemoryEventStore {
+  private events: AppEvent[] = [];
+  private hydrateFromDB: boolean;
+
+  constructor(hydrateFromDB: boolean = false) {
+    this.hydrateFromDB = hydrateFromDB;
+    if (hydrateFromDB) {
+      this.hydrate();
+    }
+  }
+
+  private async hydrate() {
+    try {
+      const events = await prisma.event.findMany({
+        orderBy: { timestamp: 'asc' },
+        take: 10000,
+      });
+      
+      for (const event of events) {
+        const parsed = AppEventSchema.parse({
+          id: event.id,
+          streamId: event.streamId,
+          timestamp: event.timestamp,
+          type: event.type,
+          payload: JSON.parse(event.payload as string),
+        });
+        this.append(parsed);
+      }
+      console.log(`[EventStore] Hydrated ${events.length} events from DB`);
+    } catch (e) {
+      console.error('[EventStore] Failed to hydrate:', e);
+    }
+  }
+
+  append(event: AppEvent): { ok: true; eventId: string } | { ok: false; error: unknown } {
+    try {
+      const parsed = AppEventSchema.parse(event);
+      
+      this.events.push(parsed);
+      
+      // Apply to materialized state
+      applyContribution(parsed);
+      applyVerification(parsed);
+      
+      // Also persist to DB
+      this.persistEvent(parsed).catch(console.error);
+      
+      return { ok: true, eventId: parsed.id };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  private async persistEvent(event: AppEvent) {
+    try {
+      await prisma.event.create({
+        data: {
+          id: event.id,
+          actorId: (event.payload as any).userId ?? (event.payload as any).verifierId ?? 'unknown',
+          streamId: event.streamId,
+          timestamp: event.timestamp,
+          type: event.type,
+          payload: JSON.stringify(event.payload),
+        },
+      });
+    } catch (e) {
+      console.error('[EventStore] Failed to persist:', e);
+    }
+  }
+
+  getEvents(): AppEvent[] {
+    return [...this.events];
+  }
+
+  getState(): Map<string, UserState> {
+    return new Map(state);
+  }
+
+  getLeaderboard({ offset = 0, limit = 50 }: { offset?: number; limit?: number }) {
+    const users = Array.from(state.values())
+      .sort((a, b) => b.totalXP - a.totalXP)
+      .slice(offset, offset + limit);
+    
+    return users.map(u => ({
+      userId: u.userId,
+      total: u.totalXP,
+      pending: u.pendingXP,
+      contributions: u.contributions,
+      lastActivity: u.lastActivity,
+    }));
+  }
+
+  getUserCount(): number {
+    return state.size;
+  }
+
+  getUser(userId: string): UserState | undefined {
+    return state.get(userId);
+  }
+}
+
+export { prisma };
+
+
+// ===========================================
+// FILE: ./packages/bonding/src/index.ts
+// ===========================================
+
+import { PrismaClient } from '@prisma/client';
+import { z } from 'zod';
+import { AppEvent, BaseEventSchema } from '@fated/events';
+import { UserId } from '@fated/types';
+
+// Lazy initialization - only create PrismaClient when needed
+let _prisma: PrismaClient | undefined;
+function getPrisma() {
+  if (!_prisma) {
+    _prisma = new PrismaClient();
+  }
+  return _prisma;
+}
+
+// ============================================
+// SCHEMAS
+// ============================================
+
+export const StakeSchema = z.object({
+  actorId: z.string().uuid(),
+  amount: z.number().positive(),
+});
+
+export const UnstakeSchema = z.object({
+  actorId: z.string().uuid(),
+  stakeId: z.string().uuid(),
+});
+
+export const CreateTicketSchema = z.object({
+  workPackageId: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  bondRequired: z.number().positive(),
+  deadline: z.coerce.date(),
+});
+
+export const ClaimTicketSchema = z.object({
+  actorId: z.string().uuid(),
+  ticketId: z.string().uuid(),
+});
+
+export const CompleteTicketSchema = z.object({
+  ticketId: z.string().uuid(),
+  verifierId: z.string().uuid(), // Who verified the work
+});
+
+// ============================================
+// STAKE OPERATIONS
+// ============================================
+
+/**
+ * Place a stake - locks REP from user's liquid balance
+ */
+export async function stakeRep(input: z.infer<typeof StakeSchema>) {
+  const { actorId, amount } = StakeSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const actor = await tx.actorState.findUnique({
+      where: { actorId },
+    });
+
+    if (!actor) {
+      // Initialize actor if doesn't exist
+      await tx.actorState.create({
+        data: { actorId, currentRep: 0, stakedRep: 0 },
+      });
+    }
+
+    const currentActor = await tx.actorState.findUniqueOrThrow({
+      where: { actorId },
+    });
+
+    if (currentActor.currentRep < amount) {
+      throw new Error(`Insufficient REP: have ${currentActor.currentRep}, need ${amount}`);
+    }
+
+    // Move REP from liquid to staked
+    await tx.actorState.update({
+      where: { actorId },
+      data: {
+        currentRep: { decrement: amount },
+        stakedRep: { increment: amount },
+      },
+    });
+
+    // Create stake record
+    const stake = await tx.stake.create({
+      data: {
+        actorId,
+        amount,
+        status: 'ACTIVE',
+      },
+    });
+
+    // Emit event
+    await emitEvent(tx, actorId, 'STAKE_PLACED', {
+      stakeId: stake.id,
+      amount,
+      totalStaked: currentActor.stakedRep + amount,
+    });
+
+    return stake;
+  });
+}
+
+/**
+ * Release a stake - returns REP to liquid balance
+ * Only allows releasing stakes not tied to active tickets
+ */
+export async function releaseStake(input: z.infer<typeof UnstakeSchema>) {
+  const { actorId, stakeId } = UnstakeSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const stake = await tx.stake.findFirst({
+      where: { id: stakeId, actorId, status: 'ACTIVE' },
+    });
+
+    if (!stake) {
+      throw new Error('Stake not found or already released');
+    }
+
+    // Check if stake is linked to an active ticket
+    if (stake.ticketId) {
+      const ticket = await tx.ticket.findUnique({
+        where: { id: stake.ticketId },
+      });
+      if (ticket && ticket.status === 'CLAIMED') {
+        throw new Error('Cannot release stake tied to active ticket');
+      }
+    }
+
+    // Return REP to liquid balance
+    await tx.actorState.update({
+      where: { actorId },
+      data: {
+        currentRep: { increment: stake.amount },
+        stakedRep: { decrement: stake.amount },
+      },
+    });
+
+    // Update stake status
+    await tx.stake.update({
+      where: { id: stakeId },
+      data: { status: 'RELEASED', releasedAt: new Date() },
+    });
+
+    // Emit event
+    await emitEvent(tx, actorId, 'STAKE_RELEASED', {
+      stakeId: stake.id,
+      amount: stake.amount,
+    });
+
+    return { success: true, stakeId };
+  });
+}
+
+// ============================================
+// TICKET OPERATIONS
+// ============================================
+
+/**
+ * Create a new ticket (work package)
+ */
+export async function createTicket(input: z.infer<typeof CreateTicketSchema>) {
+  const data = CreateTicketSchema.parse(input);
+
+  const ticket = await getPrisma().ticket.create({
+    data: {
+      workPackageId: data.workPackageId,
+      title: data.title,
+      description: data.description,
+      bondRequired: data.bondRequired,
+      deadline: data.deadline,
+      status: 'OPEN',
+    },
+  });
+
+  return ticket;
+}
+
+/**
+ * Claim a ticket - auto-stakes from current REP if needed
+ */
+export async function claimTicket(input: z.infer<typeof ClaimTicketSchema>) {
+  const { actorId, ticketId } = ClaimTicketSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const ticket = await tx.ticket.findUnique({
+      where: { id: ticketId },
+    });
+
+    if (!ticket) {
+      throw new Error('Ticket not found');
+    }
+
+    if (ticket.status !== 'OPEN') {
+      throw new Error(`Ticket is ${ticket.status}, not available`);
+    }
+
+    const actor = await tx.actorState.findUniqueOrThrow({
+      where: { actorId },
+    });
+
+    // Auto-stake if insufficient staked REP but has current REP
+    let stakeAmount = ticket.bondRequired;
+    let autoStaked = false;
+    
+    if (actor.stakedRep < ticket.bondRequired) {
+      const needed = ticket.bondRequired - actor.stakedRep;
+      if (actor.currentRep >= needed) {
+        // Auto-stake from current REP
+        await tx.actorState.update({
+          where: { actorId },
+          data: {
+            currentRep: { decrement: needed },
+            stakedRep: { increment: needed },
+          },
+        });
+        stakeAmount = ticket.bondRequired;
+        autoStaked = true;
+      } else {
+        throw new Error(`Insufficient REP: have ${actor.currentRep} liquid + ${actor.stakedRep} staked, need ${ticket.bondRequired}`);
+      }
+    }
+
+    // Create a stake specifically for this ticket
+    const stake = await tx.stake.create({
+      data: {
+        actorId,
+        amount: stakeAmount,
+        ticketId,
+        status: 'ACTIVE',
+      },
+    });
+
+    // Update ticket status
+    const updatedTicket = await tx.ticket.update({
+      where: { id: ticketId },
+      data: {
+        claimedBy: actorId,
+        claimedAt: new Date(),
+        status: 'CLAIMED',
+      },
+    });
+
+    // Emit event
+    await emitEvent(tx, actorId, 'TICKET_CLAIMED', {
+      ticketId: ticket.id,
+      stakeId: stake.id,
+      title: ticket.title,
+      deadline: ticket.deadline,
+    });
+
+    return { ticket: updatedTicket, stake };
+  });
+}
+
+/**
+ * Complete a ticket - returns stake + awards REP
+ */
+export async function completeTicket(input: z.infer<typeof CompleteTicketSchema>) {
+  const { ticketId, verifierId } = CompleteTicketSchema.parse(input);
+
+  return getPrisma().$transaction(async (tx) => {
+    const ticket = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      include: { stake: true },
+    });
+
+    if (!ticket) {
+      throw new Error('Ticket not found');
+    }
+
+    if (ticket.status !== 'CLAIMED') {
+      throw new Error(`Ticket is ${ticket.status}, cannot complete`);
+    }
+
+    if (!ticket.claimedBy || !ticket.stake) {
+      throw new Error('Ticket has no claimant or stake');
+    }
+
+    // LAZY ENFORCEMENT: Check deadline and trigger forfeiture if overdue
+    // This ensures economic rules are enforced at interaction time, not just by background job
+    if (ticket.deadline && new Date(ticket.deadline) < new Date()) {
+      // Ticket is overdue - execute forfeiture inline
+      const slashPercent = 0.5; // Same as Reaper default
+      const slashAmount = ticket.stake.amount * slashPercent;
+      const returnAmount = ticket.stake.amount - slashAmount;
+
+      // Update ticket status to FORFEITED
+      await tx.ticket.update({
+        where: { id: ticket.id },
+        data: { status: 'FORFEITED' },
+      });
+
+      // Update stake to FORFEITED
+      await tx.stake.update({
+        where: { id: ticket.stake.id },
+        data: { status: 'FORFEITED' },
+      });
+
+      // Slash the REP
+      if (returnAmount > 0) {
+        await tx.actorState.update({
+          where: { actorId: ticket.claimedBy },
+          data: {
+            stakedRep: { decrement: ticket.stake.amount },
+            currentRep: { increment: returnAmount },
+          },
+        });
+      } else {
+        await tx.actorState.update({
+          where: { actorId: ticket.claimedBy },
+          data: {
+            stakedRep: { decrement: ticket.stake.amount },
+          },
+        });
+      }
+
+      // Emit forfeiture event
+      await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+        ticketId: ticket.id,
+        title: ticket.title,
+        originalStake: ticket.stake.amount,
+        slashed: slashAmount,
+        returned: returnAmount,
+        reason: 'lazy_forfeiture',
+      });
+
+      throw new Error('Ticket deadline missed - stake has been forfeited');
+    }
+
+    // Return staked REP to liquid
+    await tx.actorState.update({
+      where: { actorId: ticket.claimedBy },
+      data: {
+        currentRep: { increment: ticket.stake.amount },
+        stakedRep: { decrement: ticket.stake.amount },
+      },
+    });
+
+    // Update stake to released
+    await tx.stake.update({
+      where: { id: ticket.stake.id },
+      data: { status: 'RELEASED', releasedAt: new Date() },
+    });
+
+    // Update ticket status
+    const updatedTicket = await tx.ticket.update({
+      where: { id: ticketId },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+      },
+    });
+
+    // Emit completion event
+    await emitEvent(tx, ticket.claimedBy, 'TICKET_COMPLETED', {
+      ticketId: ticket.id,
+      title: ticket.title,
+      bondReturned: ticket.stake.amount,
+      verifiedBy: verifierId,
+    });
+
+    return { ticket: updatedTicket, returnedAmount: ticket.stake.amount };
+  });
+}
+
+// ============================================
+// FORFEITURE LOGIC
+// ============================================
+
+/**
+ * Process overdue tickets - slash staked REP
+ * Implements batching, time budget, and fair ordering
+ * @param slashPercent - percentage of stake to burn (0-1)
+ * @param batchSize - max tickets per batch (default 50)
+ * @param timeBudgetMs - max time per cycle in ms (default 5000)
+ */
+export async function processForfeitures(
+  slashPercent: number = 0.5,
+  batchSize: number = 50,
+  timeBudgetMs: number = 5000
+) {
+  const results = [];
+  const errors = [];
+  const startTime = Date.now();
+
+  // Process in batches with time budget
+  let hasMore = true;
+
+  while (hasMore) {
+    // Check time budget - stop if we're taking too long
+    if (Date.now() - startTime > timeBudgetMs) {
+      console.log(`[Forfeiture] Time budget exhausted yielding, for next cycle`);
+      break;
+    }
+
+    // Fetch batch of overdue tickets, ordered by deadline (oldest first - fairness)
+    const overdueTickets = await getPrisma().ticket.findMany({
+      where: {
+        status: 'CLAIMED',
+        deadline: { lt: new Date() },
+      },
+      take: batchSize,
+      orderBy: { deadline: 'asc' },
+      include: { stake: true, actor: true },
+    });
+
+    // No more tickets to process
+    if (overdueTickets.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    // Process each ticket with isolated error handling
+    for (const ticket of overdueTickets) {
+      try {
+        if (!ticket.stake || !ticket.claimedBy) continue;
+
+        const slashAmount = ticket.stake.amount * slashPercent;
+        const returnAmount = ticket.stake.amount - slashAmount;
+
+        await getPrisma().$transaction(async (tx) => {
+          // Double-check status hasn't changed (idempotency)
+          const currentTicket = await tx.ticket.findUnique({
+            where: { id: ticket.id },
+          });
+
+          if (currentTicket?.status !== 'CLAIMED') {
+            // Already processed, skip
+            return;
+          }
+
+          // Update ticket status
+          await tx.ticket.update({
+            where: { id: ticket.id },
+            data: { status: 'FORFEITED' },
+          });
+
+          // Update stake to forfeited
+          await tx.stake.update({
+            where: { id: ticket.stake!.id },
+            data: { status: 'FORFEITED' },
+          });
+
+          // Handle REP: slash some, return remainder
+          if (returnAmount > 0) {
+            await tx.actorState.update({
+              where: { actorId: ticket.claimedBy },
+              data: {
+                stakedRep: { decrement: ticket.stake!.amount },
+                currentRep: { increment: returnAmount },
+              },
+            });
+          } else {
+            // All staked REP is burned
+            await tx.actorState.update({
+              where: { actorId: ticket.claimedBy },
+              data: {
+                stakedRep: { decrement: ticket.stake!.amount },
+              },
+            });
+          }
+
+          // Emit forfeiture event
+          await emitEvent(tx, ticket.claimedBy, 'FORFEITURE_EXECUTED', {
+            ticketId: ticket.id,
+            title: ticket.title,
+            originalStake: ticket.stake.amount,
+            slashed: slashAmount,
+            returned: returnAmount,
+          });
+
+          results.push({
+            ticketId: ticket.id,
+            slashed: slashAmount,
+            returned: returnAmount,
+          });
+        });
+      } catch (err) {
+        // Log error but continue with next ticket - don't kill the batch
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Forfeiture] Failed to forfeit ticket ${ticket.id}:`, errorMsg);
+        errors.push({ ticketId: ticket.id, error: errorMsg });
+      }
+    }
+
+    // If we got a full batch, there might be more - continue
+    // Otherwise we're done
+    hasMore = overdueTickets.length === batchSize;
+  }
+
+  // Log summary
+  if (results.length > 0 || errors.length > 0) {
+    console.log(`[Forfeiture] Cycle complete: ${results.length} processed, ${errors.length} failed`);
+  }
+
+  return { results, errors, totalProcessed: results.length, totalFailed: errors.length };
+}
+
+// ============================================
+// UTILITIES
+// ============================================
+
+async function emitEvent(
+  tx: PrismaClient,
+  actorId: string,
+  type: string,
+  payload: Record<string, unknown>
+) {
+  const event = await tx.event.create({
+    data: {
+      id: crypto.randomUUID(),
+      actorId,
+      streamId: `bonding-${Date.now()}`,
+      timestamp: new Date(),
+      type,
+      payload: JSON.stringify(payload),
+    },
+  });
+  return event;
+}
+
+/**
+ * Get user's staking summary
+ */
+export async function getStakeSummary(actorId: string) {
+  const actor = await getPrisma().actorState.findUnique({
+    where: { actorId },
+  });
+
+  const stakes = await getPrisma().stake.findMany({
+    where: { actorId, status: 'ACTIVE' },
+  });
+
+  const tickets = await getPrisma().ticket.findMany({
+    where: { claimedBy: actorId, status: 'CLAIMED' },
+  });
+
+  return {
+    currentRep: actor?.currentRep ?? 0,
+    stakedRep: actor?.stakedRep ?? 0,
+    activeStakes: stakes.length,
+    activeTickets: tickets.length,
+  };
+}
+
+/**
+ * List available tickets
+ */
+export async function listOpenTickets(limit: number = 20) {
+  return getPrisma().ticket.findMany({
+    where: { status: 'OPEN' },
+    orderBy: { deadline: 'asc' },
+    take: limit,
+  });
+}
+
+/**
+ * Get ticket details
+ */
+export async function getTicket(ticketId: string) {
+  return getPrisma().ticket.findUnique({
+    where: { id: ticketId },
+    include: { stake: true },
+  });
+}
+
+export { prisma };
+
+
+// ===========================================
+// FILE: ./packages/matchmaker/src/index.ts
+// ===========================================
+
+import { SystemState, XpVector } from '@fated/xp-logic';
+import { Specialty, UserId } from '@fated/types';
+
+export type PartyRole = 'ARCHITECT' | 'GUARDIAN' | 'BUILDER';
+
+export type PartyMember = {
+    userId: UserId;
+    role: PartyRole;
+    score: number;
+};
+
+export type AdventuringParty = {
+    members: PartyMember[];
+    totalPower: number;
+};
+
+// Specialty and role multiplier constants
+const SPECIALTY_MULTIPLIER = 1.5;
+const ROLE_MULTIPLIER = 1.5;
+const SUCCESS_MULTIPLIER = 0.5; // Success rate adds up to 50% bonus
+
+/**
+ * Get the XP value for a specific role.
+ */
+const getRoleXP = (xp: XpVector, role: PartyRole): number => {
+    switch (role) {
+        case 'BUILDER': return xp.execution;
+        case 'ARCHITECT': return xp.collaboration;
+        case 'GUARDIAN': return xp.judgment;
+    }
+};
+
+/**
+ * Check if user has activity in the target domain across any role.
+ */
+const hasSpecialty = (xp: XpVector, targetDomain: Specialty): boolean => {
+    for (const roleHistory of Object.values(xp.roleHistory)) {
+        if (roleHistory[targetDomain] && roleHistory[targetDomain] > 0) {
+            return true;
+        }
+    }
+    return false;
+};
+
+/**
+ * Get effective score for a user with specialty, role, and success rate multipliers.
+ *
+ * Formula:
+ * effectiveScore = baseScore
+ *                * (role === targetRole ? 1.5 : 1.0)
+ *                * (specialty === targetDomain ? 1.5 : 1.0)
+ *                * (1 + (successRate[domain] * 0.5))
+ */
+const getEffectiveScore = (
+    xp: XpVector,
+    roleXP: number,
+    targetDomain?: Specialty
+): number => {
+    let score = roleXP;
+
+    // Apply role multiplier if user has XP in this role
+    if (roleXP > 0) {
+        score *= ROLE_MULTIPLIER;
+    }
+
+    // Apply specialty multiplier if target domain is specified and user has it
+    if (targetDomain && hasSpecialty(xp, targetDomain)) {
+        score *= SPECIALTY_MULTIPLIER;
+    }
+
+    // Apply success rate multiplier if target domain is specified and user has history
+    if (targetDomain && xp.successRate && xp.successRate[targetDomain] !== undefined) {
+        const successMultiplier = 1 + (xp.successRate[targetDomain] * SUCCESS_MULTIPLIER);
+        score *= successMultiplier;
+    }
+
+    return score;
+};
+
+export const formParty = (
+    state: SystemState,
+    now: Date = new Date(),
+    targetDomain?: Specialty
+): AdventuringParty => {
+    const activeUsers = Object.entries(state).filter(([_, xp]) => {
+        if (!xp.lastActivity) return false;
+        const daysSilent = (now.getTime() - xp.lastActivity.getTime()) / (1000 * 3600 * 24);
+        return daysSilent < 30;
+    });
+
+    const pool = new Set<string>();
+
+    const pickBest = (
+        role: PartyRole,
+        scorer: (xp: XpVector) => number
+    ): PartyMember | null => {
+        let bestId: string | null = null;
+        let bestScore = -1;
+
+        for (const [id, xp] of activeUsers) {
+            if (pool.has(id)) continue;
+
+            const baseScore = scorer(xp);
+            const effectiveScore = getEffectiveScore(xp, baseScore, targetDomain);
+
+            if (effectiveScore > bestScore) {
+                bestScore = effectiveScore;
+                bestId = id;
+            }
+        }
+
+        if (bestId) {
+            pool.add(bestId);
+            return { userId: bestId as UserId, role, score: bestScore };
+        }
+        return null;
+    };
+
+    const members: PartyMember[] = [];
+
+    // Pick ARCHITECT - requires collaboration XP
+    const architect = pickBest('ARCHITECT', (xp) => xp.collaboration);
+    if (architect && architect.score > 0) {
+        members.push(architect);
+    }
+
+    // Pick GUARDIAN - requires judgment XP
+    const guardian = pickBest('GUARDIAN', (xp) => xp.judgment);
+    if (guardian && guardian.score > 0) {
+        members.push(guardian);
+    }
+
+    // Pick BUILDERs - requires execution XP (specialty-aware)
+    const builder1 = pickBest('BUILDER', (xp) => xp.execution);
+    if (builder1 && builder1.score > 0) {
+        members.push(builder1);
+    }
+
+    const builder2 = pickBest('BUILDER', (xp) => xp.execution);
+    if (builder2 && builder2.score > 0) {
+        members.push(builder2);
+    }
+
+    return {
+        members,
+        totalPower: members.reduce((sum, m) => sum + m.score, 0)
+    };
+};
+
+
+// ===========================================
+// FILE: ./packages/api/src/index.ts
+// ===========================================
+
+/**
+ * @fated/api
+ * Main API Server - Modular Architecture
+ */
+
+// Load .env from project root
+import { readFileSync, existsSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// Go up 3 levels: src -> api -> packages -> root
+const rootDir = resolve(__dirname, '../../..');
+const envPath = resolve(rootDir, '.env');
+
+if (existsSync(envPath)) {
+  const envContent = readFileSync(envPath, 'utf-8');
+  envContent.split('\n').forEach(line => {
+    const match = line.match(/^([^=]+)=(.*)$/);
+    if (match) {
+      let value = match[2].trim();
+      // Remove surrounding quotes if present
+      if ((value.startsWith('"') && value.endsWith('"')) || 
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      // Convert relative paths to absolute paths
+      if (value.startsWith('file:./')) {
+        const relativePath = value.slice(7); // Remove 'file:./' (7 chars)
+        const absolutePath = resolve(rootDir, relativePath);
+        console.log('[ENV] rootDir:', rootDir);
+        console.log('[ENV] relativePath:', relativePath);
+        console.log('[ENV] absolutePath:', absolutePath);
+        value = 'file:' + absolutePath;
+      }
+      process.env[match[1].trim()] = value;
+    }
+  });
+  console.log('[ENV] Loaded DATABASE_URL:', process.env.DATABASE_URL);
+} else {
+  console.log('[ENV] No .env file found at', envPath);
+}
+
+import Fastify, { FastifyRequest, FastifyInstance } from 'fastify';
+import { randomUUID } from 'crypto';
+import { PrismaClient } from '@prisma/client';
+
+// Domain imports
+import {
+  stakeRep,
+  releaseStake,
+  createTicket,
+  claimTicket,
+  completeTicket,
+  processForfeitures,
+  getStakeSummary,
+  listOpenTickets,
+  getTicket,
+} from '@fated/domain-bonding';
+
+import { formParty, type MemberInput } from '@fated/domain-matching';
+
+// Infrastructure imports
+import { InMemoryEventStore } from '@fated/infra-event-store';
+import { AppEventSchema, type AppEvent } from '@fated/core';
+
+import {
+  verifyGitHubSignature,
+  extractTicketId,
+  GitHubPRPayloadSchema,
+} from '@fated/infra-webhooks';
+
+// ============================================
+// SERVER SETUP
+// ============================================
+
+const fastify = Fastify({ logger: true });
+
+const prisma = new PrismaClient();
+const store = new InMemoryEventStore(true);
+
+// ============================================
+// ERROR HANDLER
+// ============================================
+
+fastify.setErrorHandler((error: any, request: FastifyRequest, reply: any) => {
+  console.error('Error:', error);
+
+  if (error.code === 'P2002') {
+    return reply.status(409).send({ error: 'Resource conflict' });
+  }
+
+  if (error.message?.includes('SQLITE') || error.code === 'P3000') {
+    return reply.status(500).send({ error: 'Internal storage error' });
+  }
+
+  if (error.name === 'ZodError') {
+    return reply.status(400).send({ error: 'Validation failed', details: error.errors });
+  }
+
+  return reply.status(error.statusCode || 500).send({
+    error: error.message || 'Operation failed'
+  });
+});
+
+// ============================================
+// CORE EVENT ENDPOINTS
+// ============================================
+
+fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
+  const result = store.append(request.body);
+  if (!result.ok) {
+    return reply.status(400).send({ error: 'Invalid contribution payload', details: result.error });
+  }
+  return { success: true, eventId: result.eventId };
+});
+
+fastify.post('/verify', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
+  const result = store.append(request.body);
+  if (!result.ok) {
+    return reply.status(400).send({ error: 'Invalid verification payload', details: result.error });
+  }
+  return { success: true, eventId: result.eventId };
+});
+
+// ============================================
+// LEADERBOARD & TEAM
+// ============================================
+
+fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offset?: string; limit?: string } }>) => {
+  const offset = Number(request.query.offset) || 0;
+  const limit = Number(request.query.limit) || 50;
+  const leaderboard = store.getLeaderboard({ offset, limit });
+  const total = store.getUserCount();
+  return { leaderboard, total };
+});
+
+fastify.get('/team', async () => {
+  const state = store.getState();
+  
+  const members: MemberInput[] = Array.from(state.values()).map(u => ({
+    userId: u.userId,
+    specialty: 'BACKEND' as const, // Default for now
+    xp: u.totalXP,
+    successRate: Object.values(u.successRate)[0] ?? 0.5,
+  }));
+  
+  const party = formParty(members);
+  return {
+    team: party.members.map(m => ({
+      userId: m.userId,
+      role: m.role,
+      power: m.xp * m.successRate,
+    })),
+    totalPower: party.totalPower,
+  };
+});
+
+// ============================================
+// GITHUB WEBHOOK
+// ============================================
+
+fastify.post('/webhooks/github', async (request: FastifyRequest, reply) => {
+  const signature = request.headers['x-hub-signature-256'] as string;
+  const eventName = request.headers['x-github-event'] as string;
+  
+  if (!verifyGitHubSignature(JSON.stringify(request.body), signature || '')) {
+    return reply.status(401).send({ error: 'Invalid signature' });
+  }
+
+  if (eventName !== 'pull_request') {
+    return reply.send({ status: 'ignored', event: eventName });
+  }
+
+  try {
+    const payload = GitHubPRPayloadSchema.parse(request.body);
+    const { action, pull_request: pr } = payload;
+    
+    const ticketId = extractTicketId(pr.body);
+    const userId = pr.user.login;
+
+    if (action === 'opened' && ticketId) {
+      await prisma.event.create({
+        data: {
+          id: randomUUID(),
+          actorId: userId,
+          streamId: `ticket-${ticketId}`,
+          timestamp: new Date(),
+          type: 'CONTRIBUTION_SUBMITTED',
+          payload: JSON.stringify({ ticketId, prUrl: pr.html_url, status: 'IN_REVIEW' }),
+        },
+      });
+    }
+
+    if (action === 'closed' && pr.merged && ticketId) {
+      await prisma.event.create({
+        data: {
+          id: randomUUID(),
+          actorId: userId,
+          streamId: `ticket-${ticketId}`,
+          timestamp: new Date(),
+          type: 'TICKET_COMPLETED',
+          payload: JSON.stringify({ ticketId, prUrl: pr.html_url }),
+        },
+      });
+    }
+
+    return reply.send({ success: true });
+  } catch (e) {
+    return reply.status(400).send({ error: 'Invalid payload' });
+  }
+});
+
+// ============================================
+// BONDING & STAKING
+// ============================================
+
+fastify.post('/stake', async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
+  const { actorId, amount } = request.body;
+  if (!actorId || !amount) {
+    return reply.status(400).send({ error: 'actorId and amount required' });
+  }
+  try {
+    const stake = await stakeRep({ actorId, amount });
+    return { success: true, stake };
+  } catch (err) {
+    return reply.status(400).send({ error: (err as Error).message });
+  }
+});
+
+fastify.post('/unstake', async (request: FastifyRequest<{ Body: { actorId: string; stakeId: string } }>, reply) => {
+  const { actorId, stakeId } = request.body;
+  if (!actorId || !stakeId) {
+    return reply.status(400).send({ error: 'actorId and stakeId required' });
+  }
+  try {
+    const result = await releaseStake({ actorId, stakeId });
+    return { success: true, ...result };
+  } catch (err) {
+    return reply.status(400).send({ error: (err as Error).message });
+  }
+});
+
+fastify.post('/ticket', async (request: FastifyRequest<{
+  Body: { workPackageId: string; title: string; description?: string; bondRequired: number; deadline: string }
+}>, reply) => {
+  const { workPackageId, title, description, bondRequired, deadline } = request.body;
+  if (!workPackageId || !title || !bondRequired || !deadline) {
+    return reply.status(400).send({ error: 'Missing required fields' });
+  }
+  try {
+    const ticket = await createTicket({ workPackageId, title, description, bondRequired, deadline: new Date(deadline) });
+    return { success: true, ticket };
+  } catch (err) {
+    return reply.status(400).send({ error: (err as Error).message });
+  }
+});
+
+fastify.post('/claim', async (request: FastifyRequest<{ Body: { actorId: string; ticketId: string } }>, reply) => {
+  const { actorId, ticketId } = request.body;
+  if (!actorId || !ticketId) {
+    return reply.status(400).send({ error: 'actorId and ticketId required' });
+  }
+  try {
+    const result = await claimTicket({ actorId, ticketId });
+    return { success: true, ...result };
+  } catch (err) {
+    return reply.status(400).send({ error: (err as Error).message });
+  }
+});
+
+fastify.post('/complete', async (request: FastifyRequest<{ Body: { ticketId: string; verifierId: string } }>, reply) => {
+  const { ticketId, verifierId } = request.body;
+  if (!ticketId || !verifierId) {
+    return reply.status(400).send({ error: 'ticketId and verifierId required' });
+  }
+  try {
+    const result = await completeTicket({ ticketId, verifierId });
+    return { success: true, ...result };
+  } catch (err) {
+    return reply.status(400).send({ error: (err as Error).message });
+  }
+});
+
+fastify.get('/tickets', async (request: FastifyRequest<{ Querystring: { limit?: string } }>) => {
+  const limit = Number(request.query.limit) || 20;
+  const tickets = await listOpenTickets(limit);
+  return { tickets };
+});
+
+fastify.get('/ticket/:id', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+  const ticket = await getTicket(request.params.id);
+  if (!ticket) return { error: 'Ticket not found' };
+  return { ticket };
+});
+
+fastify.get('/stake/:actorId', async (request: FastifyRequest<{ Params: { actorId: string } }>) => {
+  return getStakeSummary(request.params.actorId);
+});
+
+// ============================================
+// MINTING (DEV ONLY)
+// ============================================
+
+fastify.post('/mint-rep', async (request: FastifyRequest<{ Body: { actorId: string; amount: number } }>, reply) => {
+  const { actorId, amount } = request.body;
+  if (!actorId || !amount) {
+    return reply.status(400).send({ error: 'actorId and amount required' });
+  }
+  const actor = await prisma.actorState.upsert({
+    where: { actorId },
+    update: { currentRep: { increment: amount } },
+    create: { actorId, currentRep: amount, stakedRep: 0 },
+  });
+  return { success: true, actor };
+});
+
+// ============================================
+// ADMIN & REAPER (Forfeiture Processing)
+// ============================================
+
+// Redis client for distributed locking and heartbeat
+// Falls back gracefully if Redis is not available
+let redisClient: any = null;
+let redisAvailable = false;
+
+// Try to initialize Redis
+async function initRedis() {
+  try {
+    // Dynamic import to avoid hard dependency
+    const Redis = (await import('ioredis')).default;
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    redisClient = new Redis(redisUrl);
+    
+    // Test connection
+    await redisClient.ping();
+    redisAvailable = true;
+    console.log('[Reaper] Redis connected for distributed locking');
+  } catch (err) {
+    console.warn('[Reaper] Redis not available, running without distributed lock (single-instance only)');
+    redisAvailable = false;
+  }
+}
+
+/**
+ * Try to acquire distributed lock for Reaper
+ * Returns true if lock acquired, false otherwise
+ */
+async function acquireReaperLock(): Promise<boolean> {
+  if (!redisAvailable || !redisClient) {
+    // No Redis - assume single instance (warning in logs)
+    return true;
+  }
+  
+  try {
+    // NX = only set if not exists, EX = expire
+    const result = await redisClient.set('lock:reaper', process.env.HOSTNAME || 'unknown', 'NX', 'EX', 65);
+    return result === 'OK';
+  } catch (err) {
+    console.error('[Reaper] Redis lock error:', err);
+    return true; // On error, allow execution
+  }
+}
+
+/**
+ * Update heartbeat timestamp to prove Reaper is alive
+ */
+async function updateHeartbeat(): Promise<void> {
+  if (!redisAvailable || !redisClient) {
+    return;
+  }
+  
+  try {
+    await redisClient.set('reaper:heartbeat', Date.now().toString());
+  } catch (err) {
+    // Silent fail for heartbeat
+  }
+}
+
+// Configuration with environment variables and sensible defaults
+const REAPER_CONFIG = {
+  // Default: 5 minutes (300s) - much more reasonable than 60s
+  intervalMs: parseInt(process.env.REAPER_INTERVAL_MS || '300000'),
+  // Default: 50% slash on forfeited stakes
+  slashPercent: parseFloat(process.env.REAPER_SLASH_PERCENT || '0.5'),
+  // Enable/disable via env (default: enabled in production-like envs)
+  enabled: process.env.REAPER_ENABLED !== 'false',
+  // Jitter percentage to avoid thundering herd (±10%)
+  jitterPercent: 0.1,
+};
+
+let reaperInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Calculate next run time with jitter to avoid thundering herd
+ */
+function getNextRunTime(baseIntervalMs: number, jitterPercent: number): number {
+  const jitter = baseIntervalMs * jitterPercent;
+  const randomJitter = (Math.random() * 2 - 1) * jitter; // ±jitter
+  return Math.max(1000, baseIntervalMs + randomJitter); // Minimum 1s
+}
+
+/**
+ * Execute the reaper - process overdue tickets and slash staked REP
+ * Includes distributed lock to prevent multi-instance race conditions
+ */
+async function runReaper(): Promise<{ processed: number; results: Array<{ ticketId: string; slashed: number; returned: number }> }> {
+  // Try to acquire distributed lock
+  const lockAcquired = await acquireReaperLock();
+  
+  if (!lockAcquired) {
+    // Another instance has the lock - skip this cycle
+    return { processed: 0, results: [] };
+  }
+  
+  const runId = randomUUID();
+  
+  try {
+    console.log(`[Reaper] Starting cycle ${runId.slice(0, 8)}`);
+    
+    const result = await processForfeitures(REAPER_CONFIG.slashPercent);
+    const results = result.results || [];
+    
+    if (results.length > 0) {
+      console.log(`[Reaper] 💀 Executed ${results.length} forfeitures`);
+      for (const r of results) {
+        console.log(`[Reaper]   - Ticket ${r.ticketId.slice(0, 8)}: slashed ${r.slashed.toFixed(2)} REP, returned ${r.returned.toFixed(2)} REP`);
+      }
+    }
+    
+    // Update heartbeat to prove we're alive
+    await updateHeartbeat();
+    
+    console.log(`[Reaper] Cycle ${runId.slice(0, 8)} complete: ${results.length} processed, ${result.totalFailed || 0} failed`);
+    
+    return { processed: results.length, results };
+  } catch (err) {
+    console.error('[Reaper] ❌ Error:', err);
+    return { processed: 0, results: [] };
+  }
+}
+
+/**
+ * Start the reaper with configurable interval and jitter
+ */
+function startReaper(): void {
+  if (!REAPER_CONFIG.enabled) {
+    console.log('[Reaper] ⚠️  Reaper is disabled (REAPER_ENABLED=false)');
+    return;
+  }
+
+  console.log(`[Reaper] ⏰ Starting automatic forfeiture checks (every ${REAPER_CONFIG.intervalMs / 1000}s, slash ${REAPER_CONFIG.slashPercent * 100}%)`);
+
+  // Initial run after a short delay
+  setTimeout(async () => {
+    await runReaper();
+  }, 5000);
+
+  // Schedule with jitter
+  const scheduleNext = () => {
+    const nextRun = getNextRunTime(REAPER_CONFIG.intervalMs, REAPER_CONFIG.jitterPercent);
+    reaperInterval = setTimeout(async () => {
+      await runReaper();
+      scheduleNext(); // Reschedule with new jitter
+    }, nextRun);
+  };
+
+  scheduleNext();
+}
+
+/**
+ * Stop the reaper gracefully
+ */
+function stopReaper(): void {
+  if (reaperInterval) {
+    clearTimeout(reaperInterval);
+    reaperInterval = null;
+    console.log('[Reaper] 🛑 Reaper stopped');
+  }
+}
+
+// Start reaper on module load
+startReaper();
+
+// Graceful shutdown handlers
+process.on('SIGTERM', () => {
+  console.log('[Reaper] 📥 Received SIGTERM, shutting down...');
+  stopReaper();
+});
+
+process.on('SIGINT', () => {
+  console.log('[Reaper] 📥 Received SIGINT, shutting down...');
+  stopReaper();
+});
+
+// Manual trigger endpoint for testing/admin
+fastify.post('/admin/reaper', async () => {
+  const result = await runReaper();
+  return { success: true, ...result };
+});
+
+// Health check for reaper status
+fastify.get('/admin/reaper/status', async () => {
+  return {
+    enabled: REAPER_CONFIG.enabled,
+    intervalMs: REAPER_CONFIG.intervalMs,
+    slashPercent: REAPER_CONFIG.slashPercent,
+    running: reaperInterval !== null,
+  };
+});
+
+// ============================================
+// ANALYTICS
+// ============================================
+
+fastify.get('/analytics/summary', async () => {
+  const [totalActors, totalTickets, ticketsByStatus] = await Promise.all([
+    prisma.actorState.count(),
+    prisma.ticket.count(),
+    prisma.ticket.groupBy({ by: ['status'], _count: true }),
+  ]);
+  
+  const actors = await prisma.actorState.findMany();
+  const totalStaked = actors.reduce((sum, a) => sum + Number(a.stakedRep), 0);
+  
+  return {
+    totalActors,
+    totalTickets,
+    totalStaked,
+    ticketsByStatus: ticketsByStatus.reduce((acc, t) => {
+      acc[t.status] = t._count;
+      return acc;
+    }, {} as Record<string, number>),
+  };
+});
+
+fastify.get('/analytics/leaderboard/rep', async () => {
+  const actors = await prisma.actorState.findMany({ orderBy: { currentRep: 'desc' }, take: 50 });
+  const totalRep = actors.reduce((sum, a) => sum + Number(a.currentRep) + Number(a.stakedRep), 0);
+  return {
+    totalRep,
+    count: actors.length,
+    holders: actors.map(a => ({
+      actorId: a.actorId,
+      currentRep: a.currentRep,
+      stakedRep: a.stakedRep,
+      total: Number(a.currentRep) + Number(a.stakedRep),
+    })),
+  };
+});
+
+// ============================================
+// SIMULATION
+// ============================================
+
+fastify.post('/admin/sim/stress', async (request: FastifyRequest<{ Body: { iterations?: number } }>) => {
+  const iterations = request.body?.iterations || 100;
+  const startTime = Date.now();
+  let successCount = 0;
+  
+  for (let i = 0; i < iterations; i++) {
+    try {
+      const actorId = randomUUID();
+      await prisma.actorState.upsert({
+        where: { actorId },
+        update: {},
+        create: { actorId, currentRep: 1000, stakedRep: 0 },
+      });
+      await stakeRep({ actorId, amount: 10 });
+      successCount++;
+    } catch (e) { /* ignore */ }
+  }
+  
+  const duration = Date.now() - startTime;
+  return { iterations, successCount, durationMs: duration, opsPerSec: (iterations / duration * 1000).toFixed(2) };
+});
+
+fastify.delete('/admin/sim/reset', async () => {
+  await prisma.event.deleteMany({});
+  await prisma.stake.deleteMany({});
+  await prisma.ticket.deleteMany({});
+  await prisma.actorState.deleteMany({});
+  return { success: true };
+});
+
+// ============================================
+// ADVANCED SIMULATION ENDPOINTS
+// ============================================
+
+// Scenario 1: Competition Simulation (multiple actors vying for tickets)
+fastify.post('/admin/sim/competition', async (request: FastifyRequest<{ Body: { 
+  actors?: number; 
+  tickets?: number;
+  iterations?: number;
+} }>) => {
+  const { actors = 10, tickets = 5, iterations = 1 } = request.body || {};
+  const results: any[] = [];
+  
+  for (let iter = 0; iter < iterations; iter++) {
+    // Create actors
+    const actorIds: string[] = [];
+    for (let i = 0; i < actors; i++) {
+      const actorId = randomUUID();
+      actorIds.push(actorId);
+      await prisma.actorState.upsert({
+        where: { actorId },
+        update: {},
+        create: { actorId, currentRep: 1000, stakedRep: 0 },
+      });
+    }
+    
+    // Create tickets
+    const ticketIds: string[] = [];
+    for (let i = 0; i < tickets; i++) {
+      const deadline = new Date(Date.now() + (i + 1) * 86400000); // Staggered deadlines
+      const ticket = await createTicket({
+        workPackageId: `sim-compet-${iter}-${i}`,
+        title: `Competition Quest ${i}`,
+        bondRequired: 30 + Math.floor(Math.random() * 40),
+        deadline,
+      });
+      ticketIds.push(ticket.id);
+    }
+    
+    // Simulate competition: each actor tries to claim each ticket
+    let claims = 0;
+    let conflicts = 0;
+    for (const actorId of actorIds) {
+      for (const ticketId of ticketIds) {
+        try {
+          await claimTicket({ actorId, ticketId });
+          claims++;
+        } catch (e) {
+          conflicts++; // Ticket already claimed
+        }
+      }
+    }
+    
+    results.push({ iter, actors, tickets, claims, conflicts });
+  }
+  
+  return { scenario: 'competition', actors, tickets, iterations, results };
+});
+
+// Scenario 2: Forfeiture Simulation (past deadlines)
+fastify.post('/admin/sim/forfeiture', async (request: FastifyRequest<{ Body: { 
+  claimedTickets?: number;
+  hoursPastDeadline?: number;
+} }>) => {
+  const { claimedTickets = 10, hoursPastDeadline = 1 } = request.body || {};
+  
+  // Create actor with enough REP to stake
+  const actorId = randomUUID();
+  await prisma.actorState.upsert({
+    where: { actorId },
+    update: {},
+    create: { actorId: actorId, currentRep: 10000, stakedRep: 0 },
+  });
+  
+  // First stake some REP (so they have stakedRep to use for bonds)
+  await stakeRep({ actorId, amount: 5000 });
+  
+  // Create and claim tickets with PAST deadlines
+  const ticketIds: string[] = [];
+  for (let i = 0; i < claimedTickets; i++) {
+    // Set deadline in the past
+    const deadline = new Date(Date.now() - (hoursPastDeadline * 3600000) - (i * 60000));
+    const ticket = await createTicket({
+      workPackageId: `forfeit-${i}`,
+      title: `Forfeit Quest ${i}`,
+      bondRequired: 50,
+      deadline,
+    });
+    
+    // Claim it - this should stake the bond
+    try {
+      await claimTicket({ actorId, ticketId: ticket.id });
+      ticketIds.push(ticket.id);
+    } catch (e) {
+      return { error: (e as Error).message, actorId, ticketCreated: i };
+    }
+  }
+  
+  // Run reaper
+  const reaperResult = await processForfeitures();
+  
+  return { 
+    scenario: 'forfeiture',
+    actorId,
+    ticketsCreated: claimedTickets,
+    hoursPastDeadline,
+    reaperResults: reaperResult,
+  };
+});
+
+// Scenario 3: XP Decay Simulation (inactivity over time)
+fastify.post('/admin/sim/xp-decay', async (request: FastifyRequest<{ Body: { 
+  actors?: number;
+  daysInactive?: number;
+  initialXp?: number;
+} }>) => {
+  const { actors = 10, daysInactive = 30, initialXp = 1000 } = request.body || {};
+  
+  const results: any[] = [];
+  
+  for (let i = 0; i < actors; i++) {
+    const actorId = randomUUID();
+    const lastActivity = new Date(Date.now() - (daysInactive * 86400000));
+    
+    await prisma.actorState.upsert({
+      where: { actorId },
+      update: {},
+      create: { 
+        actorId, 
+        currentRep: 1000, 
+        stakedRep: 0,
+        currentXp: initialXp,
+        lastActivity: lastActivity,
+        decayRate: 0.01, // 1% decay per day
+      },
+    });
+    
+    // Calculate expected decay
+    const daysSinceActivity = Math.floor((Date.now() - lastActivity.getTime()) / 86400000);
+    const expectedDecay = Math.min(0.5, daysSinceActivity * 0.01); // Max 50% decay
+    const expectedXp = Math.floor(initialXp * (1 - expectedDecay));
+    
+    results.push({ actorId, daysInactive: daysSinceActivity, initialXp, expectedXp, decayRate: 0.01 });
+  }
+  
+  return { scenario: 'xp-decay', actors, daysInactive, initialXp, results };
+});
+
+// Scenario 4: High Stake Simulation (bonding mechanics)
+fastify.post('/admin/sim/high-stakes', async (request: FastifyRequest<{ Body: { 
+  actors?: number;
+  ticketValue?: number;
+  winRate?: number;
+} }>) => {
+  const { actors = 20, ticketValue = 100, winRate = 0.7 } = request.body || {};
+  
+  const actorStats: any[] = [];
+  
+  for (let i = 0; i < actors; i++) {
+    const actorId = randomUUID();
+    const startingRep = 1000 + Math.floor(Math.random() * 4000);
+    
+    // Create actor with high REP
+    await prisma.actorState.upsert({
+      where: { actorId },
+      update: {},
+      create: { actorId, currentRep: startingRep, stakedRep: 0 },
+    });
+    
+    // Simulate 10 tickets each
+    let wins = 0;
+    let losses = 0;
+    let totalStaked = 0;
+    
+    for (let j = 0; j < 10; j++) {
+      const deadline = new Date(Date.now() + 86400000);
+      const ticket = await createTicket({
+        workPackageId: `hs-${i}-${j}`,
+        title: `High Stake Quest ${j}`,
+        bondRequired: ticketValue,
+        deadline,
+      });
+      
+      try {
+        await claimTicket({ actorId, ticketId: ticket.id });
+        totalStaked += ticketValue;
+        
+        // Simulate completion vs forfeiture
+        if (Math.random() < winRate) {
+          await completeTicket({ ticketId: ticket.id, verifierId: actorId });
+          wins++;
+        } else {
+          losses++;
+        }
+      } catch (e) {
+        // Already claimed
+      }
+    }
+    
+    actorStats.push({ 
+      actorId: actorId.slice(0, 8), 
+      startingRep, 
+      wins, 
+      losses, 
+      totalStaked,
+      winRate: (wins / (wins + losses) * 100).toFixed(1) + '%'
+    });
+  }
+  
+  return { scenario: 'high-stakes', actors, ticketValue, winRate, actorStats };
+});
+
+// Scenario 5: Activity Heatmap (engagement over time)
+fastify.post('/admin/sim/activity', async (request: FastifyRequest<{ Body: { 
+  days?: number;
+  actorsPerDay?: number;
+} }>) => {
+  const { days = 30, actorsPerDay = 5 } = request.body || {};
+  
+  const activityByDay: Record<string, number> = {};
+  
+  for (let d = 0; d < days; d++) {
+    const date = new Date(Date.now() - (d * 86400000)).toISOString().split('T')[0];
+    let actions = 0;
+    
+    for (let a = 0; a < actorsPerDay; a++) {
+      const actorId = randomUUID();
+      
+      // Random action type
+      const actionType = Math.floor(Math.random() * 4);
+      if (actionType === 0) {
+        // Mint REP
+        await prisma.actorState.upsert({
+          where: { actorId },
+          update: {},
+          create: { actorId, currentRep: 100, stakedRep: 0 },
+        });
+        actions++;
+      } else if (actionType === 1) {
+        // Create ticket
+        try {
+          const deadline = new Date(Date.now() + 86400000);
+          await createTicket({
+            workPackageId: `act-${date}-${a}`,
+            title: `Activity Quest ${date}`,
+            bondRequired: 30,
+            deadline,
+          });
+          actions++;
+        } catch (e) { /* ignore */ }
+      }
+    }
+    
+    activityByDay[date] = actions;
+  }
+  
+  return { scenario: 'activity', days, actorsPerDay, totalActions: Object.values(activityByDay).reduce((a, b) => a + b, 0), activityByDay };
+});
+
+// Scenario 6: Market Dynamics (supply/demand of tickets)
+fastify.post('/admin/sim/market', async (request: FastifyRequest<{ Body: { 
+  creators?: number;
+  workers?: number;
+  ticketsPerCreator?: number;
+} }>) => {
+  const { creators = 5, workers = 20, ticketsPerCreator = 10 } = request.body || {};
+  
+  // Creators make tickets
+  const creatorIds: string[] = [];
+  for (let i = 0; i < creators; i++) {
+    const creatorId = randomUUID();
+    creatorIds.push(creatorId);
+    await prisma.actorState.upsert({
+      where: { actorId: creatorId },
+      update: {},
+      create: { actorId: creatorId, currentRep: 10000, stakedRep: 0 },
+    });
+  }
+  
+  // Create tickets
+  let totalTicketValue = 0;
+  for (const creatorId of creatorIds) {
+    for (let i = 0; i < ticketsPerCreator; i++) {
+      const bond = 20 + Math.floor(Math.random() * 80);
+      const deadline = new Date(Date.now() + (7 + Math.floor(Math.random() * 14)) * 86400000);
+      
+      await createTicket({
+        workPackageId: `market-${creatorId.slice(0, 4)}-${i}`,
+        title: `Market Quest ${i}`,
+        bondRequired: bond,
+        deadline,
+      });
+      totalTicketValue += bond;
+    }
+  }
+  
+  // Workers compete for tickets
+  let claimed = 0;
+  let failedToClaim = 0;
+  
+  for (let w = 0; w < workers; w++) {
+    const workerId = randomUUID();
+    await prisma.actorState.upsert({
+      where: { actorId: workerId },
+      update: {},
+      create: { actorId: workerId, currentRep: 500, stakedRep: 0 },
+    });
+    
+    // Try to claim as many as possible
+    const tickets = await prisma.ticket.findMany({ where: { status: 'OPEN' } });
+    for (const ticket of tickets) {
+      try {
+        await claimTicket({ actorId: workerId, ticketId: ticket.id });
+        claimed++;
+      } catch (e) {
+        failedToClaim++;
+      }
+    }
+  }
+  
+  const openTickets = await prisma.ticket.count({ where: { status: 'OPEN' } });
+  const claimedTickets = await prisma.ticket.count({ where: { status: 'CLAIMED' } });
+  
+  return { 
+    scenario: 'market',
+    creators,
+    workers,
+    ticketsPerCreator,
+    totalTickets: creators * ticketsPerCreator,
+    totalTicketValue,
+    claimed,
+    failedToClaim,
+    remaining: { open: openTickets, claimed: claimedTickets },
+    supplyDemand: ((claimed / (creators * ticketsPerCreator)) * 100).toFixed(1) + '% filled'
+  };
+});
+
+// ============================================
+// START SERVER
+// ============================================
+
+const start = async () => {
+  try {
+    // Initialize Redis for distributed locking
+    await initRedis();
+    
+    await fastify.listen({ port: 3000, host: '0.0.0.0' });
+    console.log('🚀 FatedFortress API running at http://localhost:3000');
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+};
+
+start();
+
+
+// ===========================================
+// FILE: ./apps/server/src/index.ts
+// ===========================================
+
+/**
+ * @fated/server
+ * Server entry point - re-exports the API
+ */
+
+// Re-export everything from @fated/api
+// This allows running via: pnpm --filter @fated/server dev
+
+import '@fated/api';
+
+
+// ===========================================
+// FILE: ./apps/web/src/app/page.tsx
+// ===========================================
+
+export default function Home() {
+  return (
+    <>
+      <header>
+        <div className="container header-inner">
+          <a href="/" className="logo">
+            <div className="logo-icon">F</div>
+            FatedFortress
+          </a>
+          <nav>
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How It Works</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#" className="cta-button">Join Waitlist</a>
+          </nav>
+        </div>
+      </header>
+
+      <main>
+        <section className="hero">
+          <div className="container">
+            <div className="hero-badge">
+              <span>⚡</span> The resume is a lie. Let's end the performance.
+            </div>
+            
+            <h1>
+              Build with people<br />
+              who <span className="highlight">actually ship.</span>
+            </h1>
+            
+            <p className="hero-subtitle">
+              FatedFortress replaces LinkedIn theater with verified contributions. 
+              Earn XP through real work. Join Execution Squads. 
+              Ship with people who actually deliver.
+            </p>
+            
+            <div className="hero-cta">
+              <a href="#" className="primary">Get Early Access</a>
+              <a href="#how-it-works" className="secondary">See How It Works</a>
+            </div>
+
+            <div className="stats">
+              <div className="stat">
+                <div className="stat-value">0%</div>
+                <div className="stat-label">Resume Required</div>
+              </div>
+              <div className="stat">
+                <div className="stat-value">100%</div>
+                <div className="stat-label">Verified Contributions</div>
+              </div>
+              <div className="stat">
+                <div className="stat-value">∞</div>
+                <div className="stat-label">Possibilities</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="features" className="features">
+          <div className="container">
+            <div className="section-header">
+              <h2>Why FatedFortress?</h2>
+              <p>The professional network for developers who actually build things.</p>
+            </div>
+
+            <div className="features-grid">
+              <div className="feature-card">
+                <div className="feature-icon">📡</div>
+                <h3>Telemetry as Truth</h3>
+                <p>
+                  Your XP is built on verified code commits, completed tasks, 
+                  and code reviews—not self-reported skills.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="feature-icon">🎭</div>
+                <h3>Anonymous or Visible</h3>
+                <p>
+                  Work under a pseudonym until you're ready to reveal. 
+                  Full control over your visibility.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="feature-icon">⚔️</div>
+                <h3>Execution Squads</h3>
+                <p>
+                  AI assembles teams based on complementary XP profiles. 
+                  Find your perfect collaborators.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="feature-icon">📉</div>
+                <h3>Trust Decay</h3>
+                <p>
+                  Old XP fades. Recent contributions matter more. 
+                  Your reputation reflects what you do now.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="feature-icon">🔄</div>
+                <h3>Decentralized Trust</h3>
+                <p>
+                  No central authority. No manipulation. 
+                  Just verified contributions and transparent scoring.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="feature-icon">🚀</div>
+                <h3>Ship Fast</h3>
+                <p>
+                  Find teams, complete work, earn XP. 
+                  The platform that rewards execution.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="how-it-works" className="how-it-works">
+          <div className="container">
+            <div className="section-header">
+              <h2>How It Works</h2>
+              <p>From resume to reality in four steps.</p>
+            </div>
+
+            <div className="steps">
+              <div className="step">
+                <div className="step-number">1</div>
+                <div className="step-content">
+                  <h3>Connect Your Work</h3>
+                  <p>
+                    Link your GitHub, GitLab, or Bitbucket. We track your 
+                    actual contributions, not your profile.
+                  </p>
+                </div>
+              </div>
+
+              <div className="step">
+                <div className="step-number">2</div>
+                <div className="step-content">
+                  <h3>Earn XP</h3>
+                  <p>
+                    Complete tasks, review code, ship features. Every verified 
+                    contribution earns you XP in multiple axes.
+                  </p>
+                </div>
+              </div>
+
+              <div className="step">
+                <div className="step-number">3</div>
+                <div className="step-content">
+                  <h3>Join a Squad</h3>
+                  <p>
+                    AI matches you with complementary XP profiles. 
+                    Find collaborators who complement your skills.
+                  </p>
+                </div>
+              </div>
+
+              <div className="step">
+                <div className="step-number">4</div>
+                <div className="step-content">
+                  <h3>Ship & Scale</h3>
+                  <p>
+                    Execute. Deliver. Build your reputation on real work, 
+                    not theater. The truth is your credential.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="pricing" className="cta-section">
+          <div className="container">
+            <h2>Ready to end the performance?</h2>
+            <p>Join the waitlist. Be first to access the platform.</p>
+            <a href="#" className="hero-cta primary">Get Early Access</a>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div className="container footer-inner">
+          <div className="footer-links">
+            <a href="#">Privacy</a>
+            <a href="#">Terms</a>
+            <a href="#">Contact</a>
+          </div>
+          <div className="footer-copy">
+            © 2026 FatedFortress. Built for builders.
+          </div>
+        </div>
+      </footer>
+    </>
+  )
+}
+

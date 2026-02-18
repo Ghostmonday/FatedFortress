@@ -1,5 +1,5 @@
-import { AppEvent } from '@fated/events';
-import { Specialty, UserId } from '@fated/types';
+import type { AppEvent } from '@fated/events';
+import type { Specialty, UserId } from '@fated/types';
 
 export type XpVector = {
   totalXP: number;

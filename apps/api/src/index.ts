@@ -1,4 +1,4 @@
-import Fastify, { FastifyRequest, FastifyInstance } from 'fastify';
+import Fastify, { FastifyRequest, FastifyInstance, FastifyReply } from 'fastify';
 import { randomUUID } from 'crypto';
 import { formParty } from '@fated/matchmaker';
 import { AppEvent } from '@fated/events';
@@ -39,37 +39,32 @@ const store = new InMemoryEventStore(true);
 // Register GitHub Webhook Routes
 githubRoutes(fastify, { store });
 
-// POST /contribute
-fastify.post('/contribute', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
-    const result = store.append(request.body);
+// Helper to create standardized event handlers
+const createEventRouteHandler = (
+    successMessage: string,
+    errorMessage: string
+) => {
+    return async (request: FastifyRequest<{ Body: AppEvent }>, reply: FastifyReply) => {
+        const result = await store.append(request.body);
 
-    if (!result.ok) {
-        const error = result as { ok: false; error: unknown };
-        return reply.status(400).send({ error: 'Invalid contribution payload', details: error.error });
-    }
+        if (!result.ok) {
+            const error = result as { ok: false; error: unknown };
+            return reply.status(400).send({ error: errorMessage, details: error.error });
+        }
 
-    return {
-        success: true,
-        eventId: result.eventId,
-        message: 'Contribution recorded'
+        return {
+            success: true,
+            eventId: result.eventId,
+            message: successMessage
+        };
     };
-});
+};
+
+// POST /contribute
+fastify.post('/contribute', createEventRouteHandler('Contribution recorded', 'Invalid contribution payload'));
 
 // POST /verify
-fastify.post('/verify', async (request: FastifyRequest<{ Body: AppEvent }>, reply) => {
-    const result = store.append(request.body);
-
-    if (!result.ok) {
-        const error = result as { ok: false; error: unknown };
-        return reply.status(400).send({ error: 'Invalid verification payload', details: error.error });
-    }
-
-    return {
-        success: true,
-        eventId: result.eventId,
-        message: 'Verification recorded'
-    };
-});
+fastify.post('/verify', createEventRouteHandler('Verification recorded', 'Invalid verification payload'));
 
 // GET /leaderboard
 fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offset?: string; limit?: string } }>) => {
@@ -82,9 +77,10 @@ fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offs
     return {
         leaderboard: leaderboard.map(entry => ({
             userId: entry.userId,
-            totalXP: entry.total,
-            pendingXP: entry.pending,
-            contributions: entry.contributions,
+            totalXP: entry.totalXP,
+            pendingXP: entry.pendingXP,
+            contributions: Object.values(entry.roleHistory || {}).reduce((total, role) =>
+                total + Object.values(role).reduce((sum, count) => sum + count, 0), 0),
             lastActivity: entry.lastActivity
         })),
         total

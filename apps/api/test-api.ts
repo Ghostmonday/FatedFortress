@@ -23,7 +23,7 @@ function createContributionPayload(userId: string = 'user-1', complexityScore: n
 
 // Register routes for testing
 fastify.post('/contribute', async (request: any, reply) => {
-    const result = store.append(request.body);
+    const result = await store.append(request.body);
 
     if (!result.ok) {
         const error = result as { ok: false; error: unknown };
@@ -47,9 +47,10 @@ fastify.get('/leaderboard', async (request: any) => {
     return {
         leaderboard: leaderboard.map((entry: any) => ({
             userId: entry.userId,
-            totalXP: entry.total,
-            pendingXP: entry.pending,
-            contributions: entry.contributions,
+            totalXP: entry.totalXP,
+            pendingXP: entry.pendingXP,
+            contributions: Object.values(entry.roleHistory || {}).reduce((total: number, role: any) =>
+                total + Object.values(role).reduce((sum: number, count: any) => sum + count, 0), 0),
             lastActivity: entry.lastActivity
         })),
         total

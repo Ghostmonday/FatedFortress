@@ -69,7 +69,9 @@ export class InMemoryEventStore {
             orderBy: { timestamp: 'asc' }
         });
         for (const event of dbEvents) {
-            this.events.push(JSON.parse(event.payload) as AppEvent);
+            const parsed = JSON.parse(event.payload);
+            parsed.timestamp = new Date(parsed.timestamp);
+            this.events.push(parsed as AppEvent);
         }
     }
 

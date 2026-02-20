@@ -10,7 +10,11 @@ import { z } from 'zod';
 // GITHUB WEBHOOKS
 // ============================================
 
-export const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'dev-secret';
+const DEFAULT_SECRET = process.env.NODE_ENV === 'production' 
+  ? undefined 
+  : 'dev-secret';
+
+export const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || DEFAULT_SECRET;
 
 /**
  * Verify GitHub webhook HMAC-SHA256 signature
@@ -20,8 +24,19 @@ export function verifyGitHubSignature(
   signature: string,
   secret: string = GITHUB_WEBHOOK_SECRET
 ): boolean {
-  // In dev mode, skip verification
-  if (secret === 'dev-secret' || !signature) return true;
+  // In production, require a valid secret
+  if (process.env.NODE_ENV === 'production' && !secret) {
+    console.error('[webhooks] ERROR: GITHUB_WEBHOOK_SECRET not set in production!');
+    return false;
+  }
+  
+  // Skip verification in dev mode without a real secret
+  if (!secret || secret === 'dev-secret') {
+    return !signature; // Allow no signature in dev, but require it in prod
+  }
+  
+  // Verify the signature
+  if (!signature) return false;
   
   const hmac = createHmac('sha256', secret);
   const digest = 'sha256=' + hmac.update(payload).digest('hex');

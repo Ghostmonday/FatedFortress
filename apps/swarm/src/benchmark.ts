@@ -1,7 +1,11 @@
 import { randomUUID } from 'crypto';
 
 const API_URL = process.env.API_URL || 'http://localhost:3000';
-const API_KEY = process.env.API_SECRET || 'dev-api-secret';
+
+// Require API_SECRET in production - fail fast if not set
+const API_KEY = process.env.API_SECRET || (process.env.NODE_ENV === 'production' 
+  ? (() => { throw new Error('API_SECRET required in production'); })() 
+  : 'dev-api-secret');
 
 /**
  * Generate a contribution event for benchmarking.

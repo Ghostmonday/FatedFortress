@@ -11,6 +11,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "overrides": {
+    "esbuild": ">=0.25.0"
+  },
   "scripts": {
     "dev": "turbo dev",
     "dev:web": "npm run dev --workspace=apps/web",

@@ -1,0 +1,10 @@
+# Docker ignore
+node_modules
+.git
+*.log
+.env
+*.raw.log
+*.safe.log
+output
+legacy
+.vscode

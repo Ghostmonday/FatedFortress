@@ -1,0 +1,45 @@
+# The Void - Full Stack Docker Compose
+# Run with: docker-compose up -d
+
+services:
+  # The Void API
+  api:
+    build:
+      context: .
+      dockerfile: packages/simple-api/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://void:void123@db:5432/void
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=void
+      - POSTGRES_PASSWORD=void123
+      - POSTGRES_DB=void
+    volumes:
+      - void_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U void"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis for distributed locking (Reaper)
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  void_data:
+  redis_data:

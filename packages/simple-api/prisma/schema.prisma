@@ -55,3 +55,14 @@ model Event {
   type      String
   payload   String
 }
+
+model Waitlist {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String?
+  github      String?
+  source      String   @default("landing")
+  status      String   @default("PENDING")
+  invitedAt   DateTime?
+  createdAt   DateTime @default(now())
+}

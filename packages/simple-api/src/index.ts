@@ -177,6 +177,45 @@ fastify.get('/leaderboard', async () => {
   return { leaderboard: actors };
 });
 
+// Waitlist - Join
+fastify.post('/waitlist', async (request: any) => {
+  const { email, name, github, source } = request.body;
+  if (!email) return { error: 'email required' };
+  
+  // Basic email validation
+  if (!email.includes('@')) return { error: 'Invalid email format' };
+  
+  try {
+    let entry = await prisma.waitlist.findUnique({ where: { email } });
+    if (entry) {
+      return { success: true, message: 'Already on waitlist', waitlist: entry };
+    }
+    
+    entry = await prisma.waitlist.create({
+      data: { email, name, github, source: source || 'landing' }
+    });
+    return { success: true, message: 'Joined waitlist!', waitlist: entry };
+  } catch (err: any) {
+    return { error: err.message || 'Failed to join waitlist' };
+  }
+});
+
+// Waitlist - Check status
+fastify.get('/waitlist/:email', async (request: any) => {
+  const { email } = request.params;
+  const entry = await prisma.waitlist.findUnique({ where: { email } });
+  if (!entry) return { error: 'Not on waitlist' };
+  return { waitlist: entry };
+});
+
+// Waitlist - Count (public)
+fastify.get('/waitlist-count', async () => {
+  const count = await prisma.waitlist.count({
+    where: { status: { not: 'CONVERTED' } }
+  });
+  return { count };
+});
+
 // Matchmaker endpoint (stub for compatibility)
 fastify.post('/api/match', async (request: any) => {
   const { project_requirements, available_developers } = request.body || {};

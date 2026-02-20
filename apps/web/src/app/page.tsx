@@ -1,3 +1,5 @@
+import WaitlistForm from '@/components/WaitlistForm';
+
 export default function Home() {
   return (
     <>
@@ -35,8 +37,7 @@ export default function Home() {
             </p>
             
             <div className="hero-cta">
-              <a href="#" className="primary">Get Early Access</a>
-              <a href="#how-it-works" className="secondary">See How It Works</a>
+              <WaitlistForm />
             </div>
 
             <div className="stats">
@@ -180,7 +181,7 @@ export default function Home() {
           <div className="container">
             <h2>Ready to end the performance?</h2>
             <p>Join the waitlist. Be first to access the platform.</p>
-            <a href="#" className="hero-cta primary">Get Early Access</a>
+            <WaitlistForm />
           </div>
         </section>
       </main>

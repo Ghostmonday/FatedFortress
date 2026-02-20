@@ -102,3 +102,20 @@ model Ticket {
   @@index([claimedBy, status])
   @@index([status, deadline])
 }
+
+// ============================================
+// WAITLIST - Lead capture for revenue
+// ============================================
+
+model Waitlist {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String?
+  github      String?  // Optional GitHub username
+  source      String   @default("landing") // landing, twitter, referral, etc.
+  status      String   @default("PENDING") // PENDING, INVITED, CONVERTED
+  invitedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([status, createdAt])
+}

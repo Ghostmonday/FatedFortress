@@ -13,10 +13,10 @@
     "test": "exit 0"
   },
   "dependencies": {
-    "@fated/types": "workspace:*",
-    "@prisma/client": "^5.22.0"
+    "@fated/types": "workspace:*"
   },
   "devDependencies": {
+    "@prisma/client": "^5.22.0",
     "prisma": "^5.22.0",
     "typescript": "^5.6.3"
   },

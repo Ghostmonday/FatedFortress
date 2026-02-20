@@ -55,10 +55,24 @@ Where λ represents the actor-specific decay coefficient. This ensures profiles 
 
 The team formation engine ingests:
 
-- Domain expertise tensors across N axes
+- Domain expertise tensors across N axes (BACKEND, FRONTEND, DEVOPS, SECURITY, RESEARCH)
+- Role-based XP vectors (BUILDER, ARCHITECT, GUARDIAN)
 - Collaboration coefficient matrices (derived from historical co-contributions)
-- Resource availability vectors
+- Success rate tracking per domain
 - Trust gradient graphs (voucher-weighted directed edges)
+
+**Party Roles:**
+- **ARCHITECT** — Collaboration-focused (high `collaboration` XP)
+- **GUARDIAN** — Judgment-focused (high `judgment` XP)
+- **BUILDER** — Execution-focused (high `execution` XP)
+
+**Scoring Formula:**
+```
+effectiveScore = baseScore
+               × (role === targetRole ? 1.5 : 1.0)
+               × (hasSpecialty ? 1.5 : 1.0)
+               × (1 + (successRate[domain] × 0.5))
+```
 
 Output: Optimized team composition minimizing expected project failure probability.
 
@@ -103,23 +117,23 @@ The `/webhooks/github` endpoint ingests push, PR, and review events, automatical
 ## Monorepo Topology
 
 ```
-thevoid/
+fatedfortress/
 ├── apps/
-│   ├── api/           # Fastify REST gateway (port 3000)
-│   ├── web/           # Next.js frontend
-│   ├── server/        # Entry point
-│   └── swarm/        # Economic simulation/stress testing
+│   ├── web/            # Next.js frontend
+│   ├── server/         # Entry point / server
+│   └── swarm/          # Economic simulation/stress testing
 ├── packages/
 │   ├── @fated/
-│   │   ├── core/           # Event schemas, DDD aggregates
-│   │   ├── db/             # Prisma client, migration layer
-│   │   ├── types/          # TypeScript interfaces
-│   │   ├── events/         # Event store implementation
-│   │   ├── domain-bonding/ # Stake state machine
-│   │   ├── domain-xp/      # XP calculation, decay logic
-│   │   ├── domain-matching/# Team formation algorithms
-│   │   └── infra-*/       # Redis, logging, config adapters
-└── scripts/           # Build automation
+│   │   ├── core/             # Event schemas, DDD aggregates
+│   │   ├── db/               # Prisma client, migration layer
+│   │   ├── types/            # TypeScript interfaces, branded types
+│   │   ├── events/           # Event store implementation
+│   │   ├── simple-api/       # Fastify REST gateway
+│   │   ├── xp-logic/         # XP calculation, decay logic
+│   │   ├── matchmaker/       # Team formation algorithms
+│   │   ├── bonding/          # Stake state machine
+│   │   └── infra-*/         # Redis, logging, config adapters
+└── scripts/            # Build automation
 ```
 
 ---
@@ -128,54 +142,68 @@ thevoid/
 
 **ActorState**
 ```
-actorId, currentRep, stakedRep, currentXp, decayRate
+actorId, currentRep, stakedRep, currentXp, pendingXp, decayRate, lastActivity, roleHistory, successRate
 ```
 
 **Stake**
 ```
-id, actorId, amount, ticketId, status (ACTIVE|RELEASED|FORFEITED)
+id, actorId, amount, ticketId, status (ACTIVE|RELEASED|FORFEITED), createdAt, releasedAt
 ```
 
 **Ticket**
 ```
-id, title, bondRequired, claimedBy, status (OPEN|CLAIMED|COMPLETED|FORFEITED), deadline
+id, workPackageId, title, description, bondRequired, claimedBy, claimedAt, deadline, completedAt, status
 ```
 
 **Event**
 ```
-id, actorId, type, payload (JSON), timestamp
+id, actorId, streamId, type, payload, metadata, timestamp
+```
+
+**Project**
+```
+id, name, domain, status, squadIds, createdAt, completedAt
+```
+
+**Evaluation**
+```
+id, projectId, userId, score, feedback, createdAt
 ```
 
 ---
 
 ## API Surface
 
-### Staking
-- `POST /stake` — Lock REP
-- `POST /unstake` — Release stake
+### Core Endpoints
 
-### Task Management
-- `POST /ticket` — Create ticket
-- `POST /claim` — Claim + auto-stake
-- `POST /complete` — Verify completion (triggers lazy slash if overdue)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/actor` | Create actor |
+| `GET` | `/actor/:actorId` | Get actor details |
+
+### Staking
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/ticket` | Create ticket |
+| `GET` | `/tickets` | List open tickets |
+| `POST` | `/claim` | Claim ticket + auto-stake |
+| `POST` | `/complete` | Verify completion |
 
 ### Analytics
-- `GET /leaderboard` — Top contributors
-- `GET /analytics/summary` — System metrics
-- `GET /analytics/leaderboard/rep` — REP rankings
-
-### Events
-- `POST /contribute` — Record contribution
-- `POST /verify` — Verify contribution
-
-### Integration
-- `POST /webhooks/github` — GitHub event ingestion
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/leaderboard` | Top contributors by XP |
 
 ### Administration
-- `POST /admin/reaper` — Trigger Reaper execution
-- `GET /admin/reaper/status` — Reaper health
-- `POST /admin/sim/stress` — Load injection
-- `DELETE /admin/sim/reset` — State reset
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/admin/mint` | Mint REP (dev only) |
+
+### Integration
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/webhooks/github` | GitHub event ingestion |
 
 ---
 
@@ -186,19 +214,88 @@ id, actorId, type, payload (JSON), timestamp
 | `DATABASE_URL` | SQLite path | `file:./dev.db` |
 | `PORT` | API port | `3000` |
 | `REDIS_URL` | Lock backend | `redis://localhost:6379` |
-| `REAPER_INTERVAL_MS` | Execution interval | `300000` |
-| `REAPER_SLASH_PERCENT` | Slash rate | `0.5` |
+| `REAPER_INTERVAL_MS` | Execution interval | `300000` (5 min) |
+| `REAPER_SLASH_PERCENT` | Slash rate | `0.5` (50%) |
 
 ---
 
-## Operational Commands
+## Developer Setup
+
+### Prerequisites
+- Node.js 20+
+- pnpm 9+
+- Redis (optional, for distributed locking)
+
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/fatedfortress/fatedfortress.git
+cd fatedfortress
+
+# Install dependencies
 pnpm install
+
+# Generate Prisma client
 pnpm prisma generate
-pnpm dev
-pnpm test --coverage
+
+# Push schema to database
+pnpm prisma db push
 ```
+
+### Running the API
+
+```bash
+# Development mode (all apps)
+pnpm dev
+
+# API only
+pnpm start:api
+
+# Frontend only
+pnpm dev:web
+```
+
+### Running Tests
+
+```bash
+# Run all tests with coverage
+pnpm test --coverage
+
+# Run tests for specific package
+pnpm --filter @fated/matchmaker test
+```
+
+### Building
+
+```bash
+# Build all packages and apps
+pnpm build
+
+# Build specific app
+pnpm build:web
+pnpm build:api
+```
+
+---
+
+## Key Packages
+
+### `@fated/xp-logic`
+XP calculation, temporal decay, role-based XP vectors (BUILDER, ARCHITECT, GUARDIAN), success rate tracking.
+
+### `@fated/matchmaker`
+Team formation using multi-vector matchmaking. Forms optimal parties based on:
+- Domain expertise (BACKEND, FRONTEND, DEVOPS, SECURITY, RESEARCH)
+- Role alignment (1.5× multiplier)
+- Specialty match (1.5× multiplier)
+- Success rate (up to 50% bonus)
+
+### `@fated/simple-api`
+Fastify-based REST API exposing all core functionality.
+
+### `@fated/db`
+Prisma schema and database migrations for SQLite.
 
 ---
 
@@ -209,4 +306,3 @@ The professional labor market suffers from information asymmetry: credentials ar
 ---
 
 *Everything is observed. Everything is recorded. Everything decays.*
-

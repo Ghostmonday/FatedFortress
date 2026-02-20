@@ -127,6 +127,18 @@ fastify.post('/verify', async (request: FastifyRequest<{ Body: AppEvent }>, repl
 // LEADERBOARD & TEAM
 // ============================================
 
+// ============================================
+// HEALTH CHECK
+// ============================================
+
+fastify.get('/health', async () => {
+  return { status: 'ok', timestamp: new Date().toISOString() };
+});
+
+// ============================================
+// LEADERBOARD
+// ============================================
+
 fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offset?: string; limit?: string } }>) => {
   const offset = Number(request.query.offset) || 0;
   const limit = Number(request.query.limit) || 50;
@@ -136,24 +148,32 @@ fastify.get('/leaderboard', async (request: FastifyRequest<{ Querystring: { offs
 });
 
 fastify.get('/team', async () => {
-  const state = store.getState();
-  
-  const members: MemberInput[] = Array.from(state.values()).map(u => ({
-    userId: u.userId,
-    specialty: 'BACKEND' as const, // Default for now
-    xp: u.totalXP,
-    successRate: Object.values(u.successRate)[0] ?? 0.5,
-  }));
-  
-  const party = formParty(members);
-  return {
-    team: party.members.map(m => ({
-      userId: m.userId,
-      role: m.role,
-      power: m.xp * m.successRate,
-    })),
-    totalPower: party.totalPower,
-  };
+  try {
+    const state = store.getState();
+    
+    if (!state || typeof state !== 'object') {
+      return { team: [], totalPower: 0, message: 'No team data yet' };
+    }
+    
+    const members: MemberInput[] = Array.from(Object.values(state)).map((u: any) => ({
+      userId: u.userId || 'unknown',
+      specialty: 'BACKEND' as const, // Default for now
+      xp: u.totalXP || 0,
+      successRate: Number(Object.values(u.successRate || {})[0]) || 0.5,
+    }));
+    
+    const party = formParty(members);
+    return {
+      team: party.members.map(m => ({
+        userId: m.userId,
+        role: m.role,
+        power: m.xp * m.successRate,
+      })),
+      totalPower: party.totalPower,
+    };
+  } catch (error: any) {
+    return { team: [], totalPower: 0, error: error.message };
+  }
 });
 
 // ============================================

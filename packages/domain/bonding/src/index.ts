@@ -57,7 +57,7 @@ async function emitEvent(
 export async function stakeRep(input: z.infer<typeof StakeInputSchema>) {
   const { actorId, amount } = StakeInputSchema.parse(input);
 
-  return getPrisma().$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx: PrismaClient) => {
     // Ensure actor exists
     let actor = await tx.actorState.findUnique({ where: { actorId } });
     if (!actor) {
@@ -102,7 +102,7 @@ export async function stakeRep(input: z.infer<typeof StakeInputSchema>) {
 export async function releaseStake(input: z.infer<typeof UnstakeInputSchema>) {
   const { actorId, stakeId } = UnstakeInputSchema.parse(input);
 
-  return getPrisma().$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx: PrismaClient) => {
     const stake = await tx.stake.findFirst({
       where: { id: stakeId, actorId, status: 'ACTIVE' },
     });
@@ -172,7 +172,7 @@ export async function createTicket(input: z.infer<typeof CreateTicketInputSchema
 export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>) {
   const { actorId, ticketId } = ClaimTicketInputSchema.parse(input);
 
-  return getPrisma().$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx: PrismaClient) => {
     const ticket = await tx.ticket.findUnique({ where: { id: ticketId } });
 
     if (!ticket) throw new Error('Ticket not found');
@@ -232,7 +232,7 @@ export async function claimTicket(input: z.infer<typeof ClaimTicketInputSchema>)
 export async function completeTicket(input: z.infer<typeof CompleteTicketInputSchema>) {
   const { ticketId, verifierId } = CompleteTicketInputSchema.parse(input);
 
-  return getPrisma().$transaction(async (tx) => {
+  return getPrisma().$transaction(async (tx: PrismaClient) => {
     const ticket = await tx.ticket.findUnique({
       where: { id: ticketId },
       include: { stake: true },
@@ -299,7 +299,7 @@ export async function processForfeitures(slashPercent: number = 0.5) {
     const returnAmount = stakeAmount - slashAmount;
     const stakeId = ticket.stake.id;
 
-    await getPrisma().$transaction(async (tx) => {
+    await getPrisma().$transaction(async (tx: PrismaClient) => {
       // Update ticket status
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'FORFEITED' } });
 

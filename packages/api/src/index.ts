@@ -662,13 +662,13 @@ fastify.get('/analytics/summary', async () => {
   ]);
   
   const actors = await prisma.actorState.findMany();
-  const totalStaked = actors.reduce((sum, a) => sum + Number(a.stakedRep), 0);
+  const totalStaked = actors.reduce((sum: number, a: any) => sum + Number(a.stakedRep), 0);
   
   return {
     totalActors,
     totalTickets,
     totalStaked,
-    ticketsByStatus: ticketsByStatus.reduce((acc, t) => {
+    ticketsByStatus: ticketsByStatus.reduce((acc: Record<string, number>, t: any) => {
       acc[t.status] = t._count;
       return acc;
     }, {} as Record<string, number>),
@@ -677,11 +677,11 @@ fastify.get('/analytics/summary', async () => {
 
 fastify.get('/analytics/leaderboard/rep', async () => {
   const actors = await prisma.actorState.findMany({ orderBy: { currentRep: 'desc' }, take: 50 });
-  const totalRep = actors.reduce((sum, a) => sum + Number(a.currentRep) + Number(a.stakedRep), 0);
+  const totalRep = actors.reduce((sum: number, a: any) => sum + Number(a.currentRep) + Number(a.stakedRep), 0);
   return {
     totalRep,
     count: actors.length,
-    holders: actors.map(a => ({
+    holders: actors.map((a: any) => ({
       actorId: a.actorId,
       currentRep: a.currentRep,
       stakedRep: a.stakedRep,
